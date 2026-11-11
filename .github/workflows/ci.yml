@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            core/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('core/Cargo.lock') }}
+
+      - name: Download PDFium
+        run: ./scripts/download-pdfium.sh
+
+      - name: Fetch test PDFs
+        run: ./scripts/fetch-samples.sh
+
+      - name: Build and test the Rust core
+        run: |
+          cd core
+          cargo build --release
+          cargo test --release
+
+      - name: Core acceptance suite
+        run: python3 scripts/accept-core.py
+
+      - name: Build the macOS app
+        run: |
+          cd app
+          swift build
