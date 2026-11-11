@@ -39,6 +39,24 @@ enum AppDebugHooks {
             }
         }
 
+        // Проверка меню «Открыть недавние» без мыши: нажимаем пункт программно.
+        if let title = value(for: "--open-recent", defaultsKey: "Folio.debugOpenRecent") {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                guard let menu = RecentDocumentsMenu.submenu(),
+                      let item = menu.items.first(where: { $0.title == title }),
+                      let action = item.action else {
+                    folioLog("debug: в недавних нет пункта «\(title)»")
+                    return
+                }
+                folioLog("debug: нажимаю пункт «\(title)» в «Открыть недавние»")
+                NSApp.sendAction(action, to: item.target, from: item)
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                folioLog("debug: после выбора в модели \(ReaderModel.active?.documentURL?.lastPathComponent ?? "—")")
+                WindowReport.write(reason: "после выбора недавнего")
+            }
+        }
+
         if let quitAfter = value(for: "--quit-after", defaultsKey: "Folio.debugQuitAfter").flatMap(Double.init) {
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: UInt64(max(quitAfter, 0.2) * 1_000_000_000))

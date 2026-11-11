@@ -69,6 +69,12 @@ enum WindowReport {
         for model in models {
             lines.append("  model \(ObjectIdentifier(model)) doc=\(model.documentURL?.lastPathComponent ?? "—") page=\(model.currentPage + 1) window=«\(model.window?.title ?? "—")» key=\(model.window?.isKeyWindow == true)")
         }
+        if let recentMenu = RecentDocumentsMenu.submenu() {
+            let titles = recentMenu.items.filter { !$0.isSeparatorItem }.map { $0.title }
+            lines.append("recentMenu (\(titles.count)): \(titles.joined(separator: " | "))")
+        } else {
+            lines.append("recentMenu: нет")
+        }
         if !events.isEmpty {
             lines.append("events:")
             lines.append(contentsOf: events.map { "  \($0)" })

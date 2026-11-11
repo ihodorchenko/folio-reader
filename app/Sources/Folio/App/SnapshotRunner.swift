@@ -369,6 +369,55 @@ enum SnapshotRunner {
         }
         settings.speechEnabled = originalSpeechEnabled
 
+        // Недавние документы: MRU-порядок, дедупликация, лимит, очистка.
+        // Проверяем на временном UserDefaults suite — реальный список не трогаем.
+        let recentsSuite = "Folio.snapshot.recents"
+        if let recentsDefaults = UserDefaults(suiteName: recentsSuite) {
+            recentsDefaults.removePersistentDomain(forName: recentsSuite)
+            let store = RecentDocumentsStore(defaults: recentsDefaults)
+            let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            let attention = root.appendingPathComponent("samples/attention.pdf")
+            let russian = root.appendingPathComponent("samples/sample-ru.pdf")
+            let noText = root.appendingPathComponent("samples/no-text.pdf")
+
+            store.note(attention)
+            store.note(russian)
+            store.note(noText)
+            folioLog("snapshot: недавние (MRU) = \(store.documents.map(\.title))")
+            store.note(attention)
+            folioLog("snapshot: после повторного открытия = \(store.documents.map(\.title))")
+            if store.documents.first?.url.standardizedFileURL != attention.standardizedFileURL {
+                folioLog("snapshot: ОШИБКА — повторно открытый документ не поднялся в начало списка")
+            }
+            if Set(store.documents.map(\.id)).count != store.documents.count {
+                folioLog("snapshot: ОШИБКА — в недавних есть дубликаты")
+            }
+
+            // Лимит: создаём 20 временных файлов и проверяем усечение списка.
+            let tempDir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("folio-recents-test")
+            try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            for index in 0..<20 {
+                let file = tempDir.appendingPathComponent("doc-\(index).pdf")
+                FileManager.default.createFile(atPath: file.path, contents: Data())
+                store.note(file)
+            }
+            folioLog("snapshot: лимит недавних — \(store.documents.count) из 20 добавленных (лимит \(RecentDocumentsStore.limit))")
+            if store.documents.count != RecentDocumentsStore.limit {
+                folioLog("snapshot: ОШИБКА — лимит недавних не соблюдается")
+            }
+            try? FileManager.default.removeItem(at: tempDir)
+            store.clear()
+            folioLog("snapshot: после очистки — \(store.documents.count) документов")
+            recentsDefaults.removePersistentDomain(forName: recentsSuite)
+        }
+
+        // Подменю «Открыть недавние» должно быть в главном меню (Файл → Открыть недавние).
+        if let recentMenu = RecentDocumentsMenu.submenu() {
+            folioLog("snapshot: меню «Открыть недавние» найдено, пунктов: \(recentMenu.items.count)")
+        } else {
+            folioLog("snapshot: ОШИБКА — в главном меню нет «Открыть недавние»")
+        }
+
         // Главное меню: команды приложения (Перевод, Озвучка, Настройки).
         let menuTitles = NSApp.mainMenu?.items.map { $0.title } ?? []
         folioLog("snapshot: главное меню = \(menuTitles.joined(separator: " | "))")

@@ -46,6 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WindowChrome.install()
         WindowChrome.suppressSoon()
         WindowHygiene.scheduleLaunchCleanup()
+        RecentDocumentsMenu.shared.install()
         WindowReport.startIfNeeded()
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -73,6 +74,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        // SwiftUI может пересобрать главное меню — возвращаем наш делегат.
+        RecentDocumentsMenu.shared.refresh()
+    }
 
     /// Перед выходом сохраняем место чтения во всех окнах.
     func applicationWillTerminate(_ notification: Notification) {
@@ -161,12 +167,36 @@ struct AppCommands: Commands {
         !(model?.selection?.isEmpty ?? true)
     }
 
+    /// Недавние документы: подменю всегда строится из актуального списка.
+    private var recents: RecentDocumentsStore { RecentDocumentsStore.shared }
+
+    /// Недавний документ открывается в текущем окне (как «Открыть…»);
+    /// если окна ещё нет — маршрутизатор создаст первое.
+    private func openRecent(_ url: URL) {
+        if let model {
+            model.open(url: url)
+        } else {
+            WindowRouter.shared.openDocument(url)
+        }
+    }
+
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
             Button("Новое окно") { WindowRouter.shared.openNewWindow() }
                 .keyboardShortcut("n", modifiers: .command)
             Button("Открыть…") { model?.presentOpenPanel() }
                 .keyboardShortcut("o", modifiers: .command)
+            Menu("Открыть недавние") {
+                if recents.documents.isEmpty {
+                    Text("Нет недавних документов")
+                } else {
+                    ForEach(recents.documents) { document in
+                        Button(document.title) { openRecent(document.url) }
+                    }
+                    Divider()
+                    Button("Очистить меню") { recents.clear() }
+                }
+            }
         }
 
         CommandGroup(replacing: .appSettings) {

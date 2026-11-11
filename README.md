@@ -30,7 +30,9 @@ and exact word boxes:
 
 ## What it does
 
-- **Open PDFs** via `⌘O`, drag & drop, command-line argument or Finder ("Open With → Folio").
+- **Open PDFs** via `⌘O`, drag & drop, command-line argument or Finder ("Open With → Folio");
+  **File → Open Recent** keeps an MRU list of the last documents (the toolbar `…` menu and the
+  empty state show the same list), with a "Clear Menu" item.
 - **One window per book** — every window owns an independent `ReaderModel`: opening another PDF
   from Finder (or `⌘N`) opens a new window and leaves the books in the existing windows alone.
   A cold start shows exactly one window, even if the previous session had several.
@@ -329,6 +331,13 @@ setting is off, and the panel is filled with demo text.
   it was left (`--goto-page` equivalent via `Folio.debugGotoPage` + graceful quit). SwiftUI's
   own window for an open event and macOS window restoration are cleaned up by
   [WindowHygiene.swift](app/Sources/Folio/App/WindowHygiene.swift).
+- Recent documents, verified in the headless run and against the signed `.app`: MRU ordering,
+  de-duplication, the 12-document limit and "Clear Menu" are asserted on a throwaway
+  `UserDefaults` suite; in the app the menu is rebuilt live after every open (the submenu items
+  were dumped from `NSApp.mainMenu`: `attention.pdf | sample-ru.pdf | Очистить меню`), and a menu
+  item was "clicked" programmatically to confirm it replaces the open document and updates the
+  MRU order. SwiftUI builds `Commands` submenus once, so the list is rendered by an
+  `NSMenuDelegate` ([RecentDocumentsMenu.swift](app/Sources/Folio/App/RecentDocumentsMenu.swift)).
 - Settings and translation contract, verified in the same headless run: speech is **off** by
   default, the language pair defaults to **EN (US) → RU**, a user-chosen pair and speed survive a
   simulated relaunch (throwaway `UserDefaults` suite — the developer's real preferences are not
@@ -377,9 +386,11 @@ cd core
 │   ├── Bundle/Info.plist
 │   └── Sources/Folio/
 │       ├── App/         FolioApp (menus, ⌘C/⌘D monitors), ReaderScene, WindowRouter,
-│       │                WindowHygiene, SnapshotRunner, WindowReport, AppDebugHooks
-│       ├── Model/       ReaderModel (one per window), ReadingPositionStore, SettingsStore,
-│       │                SpeechService, TranslationController, ReaderFocus
+│       │                WindowHygiene, RecentDocumentsMenu, SnapshotRunner, WindowReport,
+│       │                AppDebugHooks
+│       ├── Model/       ReaderModel (one per window), ReadingPositionStore,
+│       │                RecentDocumentsStore, SettingsStore, SpeechService,
+│       │                TranslationController, ReaderFocus
 │       ├── UI/          RootView, page canvas, sidebars, SettingsView,
 │       │                TranslationPanel, TranslationTaskHost
 │       └── Core/        PdfCoreBridge (dlopen + C ABI), JSON models
@@ -413,8 +424,8 @@ Current limitations:
 Natural next steps on top of the current architecture:
 
 - links and annotations (`FPDFLink_*`, `FPDFAnnot_*`);
-- proper document-based app (`NSDocument` / `DocumentGroup`) with recent documents and
-  per-window session restore (reading position is already persisted);
+- proper document-based app (`NSDocument` / `DocumentGroup`) instead of the custom
+  per-window model (recent documents and reading position are already implemented);
 - incremental rendering and neighbor-page preloading;
 - tagged PDF → semantic tree (currently only H1–H6 + outlines);
 - English UI + localization via String Catalogs;

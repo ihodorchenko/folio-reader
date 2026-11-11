@@ -162,6 +162,18 @@ struct RootView: View {
     private var moreMenu: some View {
         Menu {
             Button("Открыть…") { model.presentOpenPanel() }
+            Menu("Открыть недавние") {
+                let recent = RecentDocumentsStore.shared.documents
+                if recent.isEmpty {
+                    Text("Нет недавних документов")
+                } else {
+                    ForEach(recent) { document in
+                        Button(document.title) { model.open(url: document.url) }
+                    }
+                    Divider()
+                    Button("Очистить меню") { RecentDocumentsStore.shared.clear() }
+                }
+            }
             Divider()
             Button(model.translation.canRetry ? "Перевести выделение (повторить)" : "Перевести выделение") {
                 if model.translation.canRetry {

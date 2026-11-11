@@ -349,6 +349,9 @@ final class ReaderModel {
         let savedPosition = snapshotMode ? nil : ReadingPositionStore.load(for: url)
         pendingRestorePosition = savedPosition
         ReadingPositionStore.setLastDocument(url)
+        if !snapshotMode {
+            RecentDocumentsStore.shared.note(url)
+        }
 
         loadTask?.cancel()
         searchTask?.cancel()

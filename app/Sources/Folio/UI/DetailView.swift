@@ -137,6 +137,38 @@ struct DetailView: View {
             Button("Открыть PDF…") { model.presentOpenPanel() }
                 .controlSize(.large)
                 .padding(.top, 4)
+
+            let recent = RecentDocumentsStore.shared.documents
+            if !recent.isEmpty {
+                VStack(spacing: 4) {
+                    Text("Недавние")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    ForEach(recent.prefix(6)) { document in
+                        Button {
+                            model.open(url: document.url)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "doc.text")
+                                    .font(.system(size: 11))
+                                VStack(alignment: .leading, spacing: 0) {
+                                    Text(document.title)
+                                        .font(.system(size: 11.5))
+                                        .lineLimit(1)
+                                    Text(document.folder)
+                                        .font(.system(size: 9.5))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                            }
+                            .frame(maxWidth: 360, alignment: .leading)
+                        }
+                        .buttonStyle(.link)
+                    }
+                }
+                .padding(.top, 18)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
