@@ -51,7 +51,11 @@ and exact word boxes:
   `kind/level/confidence` labels, and a per-word box mode that proves the overlay is aligned
   with the actual glyphs.
 - **Export structure to JSON** for debugging and downstream pipelines.
-- Light/dark appearance, unified toolbar, vibrant sidebar, SF Symbols.
+- **Unified toolbar**: a single sidebar toggle, the document title on the left and the page
+  number, zoom, layout, search and overflow actions pinned to the trailing edge — no duplicated
+  sidebar buttons (SwiftUI's automatic toggle is removed through AppKit, see
+  [WindowChrome.swift](app/Sources/Folio/UI/WindowChrome.swift)).
+- Light/dark appearance, vibrant sidebar, SF Symbols.
 - Works even **without a built core** — falls back to a demo document and a banner, which is
   handy while developing the UI.
 

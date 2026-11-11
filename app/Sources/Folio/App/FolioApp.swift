@@ -49,6 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         installEventMonitors()
+        WindowChrome.install()
+        WindowChrome.suppressSoon()
         NSApp.activate(ignoringOtherApps: true)
     }
 

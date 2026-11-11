@@ -24,3 +24,6 @@ samples/attention.pdf.part
 
 # gh CLI cache (CI logs, etc.)
 .ghcache/
+
+# Local workspace tooling (image crops, editor scratch)
+.omni-workstation/

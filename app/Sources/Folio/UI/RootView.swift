@@ -19,9 +19,11 @@ struct RootView: View {
                 }
                 DetailView(model: model)
             }
+            // Системную кнопку панели убирает WindowChrome: `.toolbar(removing:)`
+            // на `NavigationSplitView` со своим toolbar не срабатывает.
+            .toolbar(removing: .sidebarToggle)
         }
         .navigationSplitViewStyle(.balanced)
-        .toolbar(removing: .sidebarToggle)
         .navigationTitle(model.documentTitle)
         .navigationSubtitle(model.statusText)
         .toolbar { toolbarContent }
@@ -37,8 +39,12 @@ struct RootView: View {
                     .allowsHitTesting(false)
             }
         }
-        .onAppear { model.backingScale = displayScale }
+        .onAppear {
+            model.backingScale = displayScale
+            WindowChrome.suppressSoon()
+        }
         .onChange(of: displayScale) { _, scale in model.backingScale = scale }
+        .onChange(of: model.columnVisibility) { _, _ in WindowChrome.suppressSoon() }
         .alert("Не удалось открыть документ",
                isPresented: Binding(get: { model.errorMessage != nil },
                                     set: { if !$0 { model.errorMessage = nil } })) {
@@ -59,23 +65,27 @@ struct RootView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        // Когда панель свёрнута, SwiftUI сам показывает кнопку возврата в titlebar —
-        // нашу не дублируем.
-        if model.columnVisibility != .detailOnly {
-            ToolbarItem(placement: .navigation) {
-                Button {
-                    toggleSidebar()
-                } label: {
-                    Image(systemName: "sidebar.left")
-                }
-                .help("Скрыть боковую панель (⧉)")
+        // Левая группа: единственная кнопка боковой панели, сразу за ней — название книги.
+        ToolbarItem(placement: .navigation) {
+            Button {
+                toggleSidebar()
+            } label: {
+                Image(systemName: "sidebar.left")
             }
+            .help(model.columnVisibility == .detailOnly ? "Показать боковую панель (⧉)" : "Скрыть боковую панель (⧉)")
         }
 
-        ToolbarItem(placement: .principal) {
+        ToolbarItem(placement: .navigation) {
             titleView
         }
 
+        // Гибкая пружина в центре: без неё SwiftUI пакует правую группу сразу
+        // за заголовком, а не прижимает её к краю тулбара.
+        ToolbarItem(placement: .principal) {
+            Spacer(minLength: 0)
+        }
+
+        // Правая группа: прижата к крайнему правому углу тулбара.
         ToolbarItemGroup(placement: .primaryAction) {
             PageIndicatorField(model: model)
             zoomMenu
@@ -105,7 +115,8 @@ struct RootView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(maxWidth: 460)
+        .frame(maxWidth: 420, alignment: .leading)
+        .lineLimit(1)
         .help("\(model.documentTitle) — \(model.statusText)")
     }
 
@@ -192,6 +203,8 @@ struct RootView: View {
         withAnimation(.easeInOut(duration: 0.22)) {
             model.columnVisibility = (model.columnVisibility == .detailOnly) ? .all : .detailOnly
         }
+        // SwiftUI пересобирает тулбар после смены видимости — чистим системную кнопку ещё раз.
+        WindowChrome.suppressSoon()
     }
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {

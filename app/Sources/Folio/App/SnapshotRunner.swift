@@ -154,6 +154,9 @@ enum SnapshotRunner {
         pump(0.5)
         model.backingScale = window.backingScaleFactor
         folioLog("snapshot: окно \(Int(window.frame.width))×\(Int(window.frame.height)) px, backingScale=\(window.backingScaleFactor)")
+        WindowChrome.suppressSoon()
+        pump(0.4)
+        logToolbar(window: window, label: "после чистки хрома")
 
         model.open(url: options.pdf)
         let ready = waitUntil(timeout: 25) { model.snapshotReady }
@@ -259,6 +262,7 @@ enum SnapshotRunner {
             runDocumentSwitchTest(model: model, window: window, options: options, nextPdf: switchPdf)
         }
 
+        logToolbar(window: window, label: "финал")
         writeSummary(model: model, options: options, extra: [:])
         folioLog("snapshot: ФАЙЛЫ В \(options.outDir.path): \(listFiles(options.outDir).joined(separator: ", "))")
         folioLog("snapshot: готово, чистый выход с кодом 0")
@@ -446,6 +450,28 @@ enum SnapshotRunner {
         }
         model.translation.isPanelPresented = false
         pump(0.6)
+    }
+
+    /// Диагностика тулбара: какие элементы реально стоят в `NSToolbar` и где они.
+    /// Нужна, чтобы ловить дубли вроде двух кнопок боковой панели.
+    private static func logToolbar(window: NSWindow, label: String) {
+        guard let toolbar = window.toolbar else {
+            folioLog("snapshot: toolbar (\(label)) — нет тулбара")
+            return
+        }
+        let items = toolbar.items.map { item -> String in
+            var parts = [item.itemIdentifier.rawValue]
+            if !item.label.isEmpty { parts.append("label=«\(item.label)»") }
+            if let view = item.view {
+                parts.append("view=\(type(of: view))")
+                let rect = view.convert(view.bounds, to: nil)
+                parts.append("frame=(x=\(Int(rect.minX)) y=\(Int(rect.minY)) w=\(Int(rect.width)) h=\(Int(rect.height)))")
+            }
+            if !item.isVisible { parts.append("hidden") }
+            return parts.joined(separator: " ")
+        }
+        let bounds = window.contentView?.superview?.bounds ?? .zero
+        folioLog("snapshot: toolbar (\(label)) \(items.count) items, chrome w=\(Int(bounds.width)) = \(items.joined(separator: " | "))")
     }
 
     // MARK: - Проверки кэша/консистентности
