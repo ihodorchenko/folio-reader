@@ -78,5 +78,5 @@ jobs:
               --title "Folio $VERSION" \
               --notes-file dist/release-notes.md
           fi
-          gh release view "$TAG" --json tagName,isDraft,url,assets \
-            --jq '"draft=\(.isDraft) tag=\(.tagName) url=\(.url)"; .assets[] | "asset: \(.name) — \(.size) bytes"'
+          gh release view "$TAG" --json tagName,isDraft,url --jq '"draft=\(.isDraft) tag=\(.tagName) url=\(.url)"'
+          gh release view "$TAG" --json assets --jq '.assets[] | "asset: \(.name) — \(.size) bytes"'
