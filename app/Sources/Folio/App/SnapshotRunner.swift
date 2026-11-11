@@ -96,7 +96,9 @@ enum SnapshotRunner {
 
     // MARK: - Запуск
 
-    static func runAndExit() -> Never {
+    // Не возвращается, но объявлена как Void: Swift 6.0 иначе конфликтует по T
+    // в MainActor.assumeIsolated { ... } на месте вызова.
+    static func runAndExit() {
         guard let options = parseOptions() else {
             folioLog("snapshot: не удалось разобрать аргументы")
             exit(2)

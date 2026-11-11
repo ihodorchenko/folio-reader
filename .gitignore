@@ -21,3 +21,6 @@ samples/attention.pdf.part
 .vscode/
 .idea/
 *.swp
+
+# gh CLI cache (CI logs, etc.)
+.ghcache/
