@@ -73,22 +73,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     /// ⌘C / ⌘D над страницей: страница — не NSTextView, поэтому обрабатываем сами.
+    ///
+    /// Локальные мониторы событий вызываются на главном потоке, но их замыкания
+    /// не изолированы на MainActor. Событие передаём через `@unchecked Sendable`
+    /// обёртку (событие живёт только внутри вызова на главном потоке), а наружу
+    /// возвращаем `Bool` — «событие обработано», чтобы не тащить NSEvent через границу.
     private func installEventMonitors() {
         let copyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard AppDelegate.isCommandKey(event, "c") else { return event }
-            if let responder = NSApp.keyWindow?.firstResponder, responder is NSTextView {
-                return event // пусть системный Copy обработает поле ввода
-            }
-            guard let selection = ReaderModel.shared.selection, !selection.isEmpty else { return event }
-            _ = ReaderModel.shared.copySelection()
-            return nil
+            let box = MainThreadEvent(event)
+            let handled = MainActor.assumeIsolated { AppDelegate.handleCopyKey(box.event) }
+            return handled ? nil : event
         }
         let dictionaryMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard AppDelegate.isCommandKey(event, "d") else { return event }
-            ReaderModel.shared.performLookUp()
-            return nil
+            let box = MainThreadEvent(event)
+            let handled = MainActor.assumeIsolated { AppDelegate.handleDictionaryKey(box.event) }
+            return handled ? nil : event
         }
         eventMonitors = [copyMonitor, dictionaryMonitor]
+    }
+
+    /// ⌘C: страница — не NSTextView, поэтому копируем выделение сами.
+    /// Возвращает `true`, если событие обработано и системный Copy не нужен.
+    @MainActor
+    private static func handleCopyKey(_ event: NSEvent) -> Bool {
+        guard isCommandKey(event, "c") else { return false }
+        if let responder = NSApp.keyWindow?.firstResponder, responder is NSTextView {
+            return false // пусть системный Copy обработает поле ввода
+        }
+        guard let selection = ReaderModel.shared.selection, !selection.isEmpty else { return false }
+        _ = ReaderModel.shared.copySelection()
+        return true
+    }
+
+    /// ⌘D: словарь по выделению / под курсором.
+    @MainActor
+    private static func handleDictionaryKey(_ event: NSEvent) -> Bool {
+        guard isCommandKey(event, "d") else { return false }
+        ReaderModel.shared.performLookUp()
+        return true
     }
 
     private static func isCommandKey(_ event: NSEvent, _ character: String) -> Bool {
@@ -101,15 +123,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+/// Обёртка для передачи `NSEvent` через границу изоляции на главный актор.
+/// Безопасно: событие не покидает главный поток и используется только внутри вызова.
+private struct MainThreadEvent: @unchecked Sendable {
+    let event: NSEvent
+    init(_ event: NSEvent) { self.event = event }
+}
+
 // MARK: - Меню
 
 struct AppCommands: Commands {
     let model: ReaderModel
 
+    /// Системный перевод появился в macOS 15 — до этого пункты отключаем.
+    private var translationAvailable: Bool {
+        if #available(macOS 15.0, *) { return true }
+        return false
+    }
+
+    private var hasSelection: Bool {
+        !(model.selection?.isEmpty ?? true)
+    }
+
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
             Button("Открыть…") { model.presentOpenPanel() }
                 .keyboardShortcut("o", modifiers: .command)
+        }
+
+        CommandGroup(replacing: .appSettings) {
+            Button("Настройки…") { model.presentSettings() }
+                .keyboardShortcut(",", modifiers: .command)
         }
 
         CommandMenu("Вид") {
@@ -151,6 +195,31 @@ struct AppCommands: Commands {
             Button("Копировать текст выделения") { _ = model.copySelection() }
                 .keyboardShortcut("c", modifiers: [.command, .shift])
                 .disabled(model.selection?.isEmpty ?? true)
+        }
+
+        CommandMenu("Перевод") {
+            Button("Перевести выделение…") { model.translateSelection() }
+                .keyboardShortcut("t", modifiers: [.command, .option])
+                .disabled(!hasSelection || !translationAvailable)
+            Button("Повторить перевод") { model.translation.retry() }
+                .disabled(!model.translation.canRetry || !translationAvailable)
+            Divider()
+            Button("Настройки перевода…") { model.presentSettings() }
+                .keyboardShortcut(",", modifiers: [.command, .option])
+        }
+
+        CommandMenu("Озвучка") {
+            Button(model.speech.isSpeaking ? "Остановить озвучку" : "Озвучить выделение") {
+                if model.speech.isSpeaking {
+                    model.stopSpeaking()
+                } else {
+                    model.speakSelection()
+                }
+            }
+            .keyboardShortcut(.escape, modifiers: .option)
+            .disabled(!hasSelection && !model.speech.isSpeaking)
+            Divider()
+            Button("Настройки озвучки…") { model.presentSettings() }
         }
     }
 }

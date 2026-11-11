@@ -77,6 +77,15 @@ final class ReaderModel {
 
     private static let lastDocumentKey = "Folio.lastDocumentPath"
 
+    // MARK: Сервисы: настройки, озвучка, перевод
+
+    /// Пользовательские настройки (озвучка выключена по умолчанию, пара EN → RU).
+    let settings = SettingsStore.shared
+    /// Синтез речи для выделенного текста.
+    let speech = SpeechService.shared
+    /// Состояние перевода выделенного фрагмента (сессию создаёт SwiftUI-хост).
+    let translation = TranslationController()
+
     // MARK: Документ
 
     private(set) var doc: (any DocumentProviding)?
@@ -627,6 +636,66 @@ final class ReaderModel {
         let ok = pasteboard.setString(selection.text, forType: .string)
         folioLog("copy: \(ok ? "скопировано" : "ОШИБКА") \(selection.text.count) символов: «\(String(selection.text.prefix(120)))»")
         return ok
+    }
+
+    // MARK: - Озвучка и перевод
+
+    /// Озвучить произвольный фрагмент (выделение, слово под курсором, перевод).
+    /// Молча отказывается, если озвучка выключена в настройках.
+    @discardableResult
+    func speak(_ text: String, origin: String = "выделения") -> Bool {
+        let ok = speech.speak(text)
+        if !ok, !settings.speechEnabled {
+            folioLog("speech: \(origin) — озвучка выключена, подсказываю настройки")
+        }
+        return ok
+    }
+
+    /// «Озвучить выделение» из меню/контекстного меню.
+    func speakSelection() {
+        guard let selection, !selection.isEmpty else {
+            folioLog("speech: нет выделения — читать нечего")
+            NSSound.beep()
+            return
+        }
+        guard settings.speechEnabled else {
+            folioLog("speech: озвучка выключена — открываю настройки")
+            NSSound.beep()
+            presentSettings()
+            return
+        }
+        speak(selection.text, origin: "выделения")
+    }
+
+    func stopSpeaking() {
+        speech.stop()
+    }
+
+    /// Перевести текст (выделение или слово) и показать панель перевода.
+    func translate(_ text: String, origin: String = "выделения") {
+        guard #available(macOS 15.0, *) else {
+            translation.unavailableOnThisSystem()
+            return
+        }
+        translation.request(text: text,
+                            sourceID: settings.translateSourceID,
+                            targetID: settings.translateTargetID,
+                            origin: origin)
+    }
+
+    /// «Перевести выделение» из меню/контекстного меню.
+    func translateSelection() {
+        guard let selection, !selection.isEmpty else {
+            folioLog("translate: нет выделения — переводить нечего")
+            NSSound.beep()
+            return
+        }
+        translate(selection.text, origin: "выделения")
+    }
+
+    /// Открыть окно настроек (⌘,).
+    func presentSettings() {
+        SettingsWindow.shared.show()
     }
 
     /// ⌘D и пункт меню «Найти в словаре»: используем активную страницу.

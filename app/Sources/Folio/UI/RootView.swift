@@ -46,6 +46,13 @@ struct RootView: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
+        // Хост системного перевода живёт всё время работы окна: сессию выдаёт SwiftUI,
+        // а запросы приходят из AppKit-меню (контекстное меню страницы).
+        .background(TranslationTaskHost(controller: model.translation))
+        .sheet(isPresented: Binding(get: { model.translation.isPanelPresented },
+                                    set: { model.translation.isPanelPresented = $0 })) {
+            TranslationPanel(model: model)
+        }
     }
 
     // MARK: - Toolbar
@@ -145,6 +152,19 @@ struct RootView: View {
         Menu {
             Button("Открыть…") { model.presentOpenPanel() }
             Divider()
+            Button(model.translation.canRetry ? "Перевести выделение (повторить)" : "Перевести выделение") {
+                if model.translation.canRetry {
+                    model.translation.retry()
+                } else {
+                    model.translateSelection()
+                }
+            }
+            .disabled((model.selection?.isEmpty ?? true) && !model.translation.canRetry)
+            Button(model.speech.isSpeaking ? "Остановить озвучку" : "Озвучить выделение") {
+                model.speech.isSpeaking ? model.stopSpeaking() : model.speakSelection()
+            }
+            .disabled(!model.settings.speechEnabled)
+            Divider()
             Button("Экспорт структуры → JSON…") { model.exportStructureJSON() }
                 .disabled(model.structure == nil)
             Divider()
@@ -155,6 +175,9 @@ struct RootView: View {
             Divider()
             Button("Фактический размер (100%)") { model.actualSize() }
             Button("По размеру ширины") { model.applyFitWidth() }
+            Divider()
+            Button("Настройки…") { model.presentSettings() }
+                .keyboardShortcut(",", modifiers: .command)
         } label: {
             Image(systemName: "ellipsis.circle")
         }

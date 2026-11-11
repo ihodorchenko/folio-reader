@@ -4,6 +4,7 @@ import SwiftUI
 /// Headless-режим для приёмки без разрешения Screen Recording:
 ///
 ///     Folio --snapshot <outdir> [pdf] [--snapshot-dictionary] [--snapshot-debug]
+///                    [--snapshot-translate]   # реальный системный перевод (нужны модели языка)
 ///
 /// Открывает документ в настоящем окне SwiftUI (чтобы отрисовался unified toolbar),
 /// ждёт загрузки страниц и сохраняет PNG в `<outdir>`. Затем прогоняет самотесты:
@@ -21,6 +22,10 @@ enum SnapshotRunner {
         var zoom: Double?
         /// Второй документ: проверка инвалидации кэша при смене файла.
         var switchPdf: URL?
+        /// Реальный системный перевод (нужны скачанные языковые модели), а не заглушка.
+        var liveTranslation: Bool = false
+        /// Реальная озвучка через AVSpeechSynthesizer (в headless-среде будет тишина).
+        var liveSpeech: Bool = false
     }
 
     // MARK: - Разбор аргументов
@@ -31,6 +36,8 @@ enum SnapshotRunner {
         var positional: [String] = []
         var zoom: Double?
         var switchPdf: URL?
+        var liveTranslation = false
+        var liveSpeech = false
         var index = 1
         while index < args.count {
             let argument = args[index]
@@ -45,6 +52,12 @@ enum SnapshotRunner {
                 } else {
                     index += 1
                 }
+            case "--snapshot-translate":
+                liveTranslation = true
+                index += 1
+            case "--snapshot-speech":
+                liveSpeech = true
+                index += 1
             case "--switch":
                 if index + 1 < args.count {
                     switchPdf = URL(fileURLWithPath: args[index + 1])
@@ -73,7 +86,9 @@ enum SnapshotRunner {
         } else {
             pdf = defaultDocument()
         }
-        return Options(outDir: outDir, pdf: pdf, zoom: zoom, switchPdf: switchPdf)
+        return Options(outDir: outDir, pdf: pdf, zoom: zoom, switchPdf: switchPdf,
+                       liveTranslation: liveTranslation,
+                       liveSpeech: liveSpeech)
     }
 
     private static func defaultDocument() -> URL {
@@ -236,6 +251,9 @@ enum SnapshotRunner {
         // 6. Самотесты словаря и копирования
         runInteractionSelfTests(window: window, options: options)
 
+        // 6b. Настройки, озвучка, перевод: значения по умолчанию, персистентность, меню
+        runFeatureSelfTests(model: model, window: window, options: options)
+
         // Проверка инвалидации кэша при смене документа
         if let switchPdf = options.switchPdf {
             runDocumentSwitchTest(model: model, window: window, options: options, nextPdf: switchPdf)
@@ -275,6 +293,159 @@ enum SnapshotRunner {
         pump(0.15)
         let pasted = NSPasteboard.general.string(forType: .string) ?? "<пусто>"
         folioLog("snapshot: в буфере обмена после copy: «\(String(pasted.prefix(140)))»")
+    }
+
+    // MARK: - Самотесты настроек, озвучки и перевода
+
+    /// Проверяет продуктовые требования без интерактивного участия:
+    /// озвучка выключена по умолчанию, пара EN(US)→RU, изменение выбора переживает
+    /// «перезапуск», в контекстном меню есть словарь/перевод/озвучка/настройки.
+    private static func runFeatureSelfTests(model: ReaderModel, window: NSWindow, options: Options) {
+        let settings = model.settings
+        folioLog("snapshot: настройки — озвучка=\(settings.speechEnabled ? "вкл" : "выкл"), пара=\(settings.translationPairTitle), скорость=\(String(format: "%.2f", settings.speechRate))")
+
+        // Значения по умолчанию и персистентность — на отдельном suite,
+        // чтобы не менять настройки пользователя этого Mac.
+        let suiteName = "Folio.snapshot.settings"
+        guard let suite = UserDefaults(suiteName: suiteName) else {
+            folioLog("snapshot: ОШИБКА — не удалось создать временный UserDefaults suite")
+            return
+        }
+        suite.removePersistentDomain(forName: suiteName)
+
+        let fresh = SettingsStore(defaults: suite)
+        folioLog("snapshot: по умолчанию — озвучка=\(fresh.speechEnabled), пара=\(fresh.translationPairTitle)")
+        if fresh.speechEnabled {
+            folioLog("snapshot: ОШИБКА — озвучка должна быть выключена по умолчанию")
+        }
+        if fresh.translateSourceID != SettingsStore.defaultSourceID
+            || fresh.translateTargetID != SettingsStore.defaultTargetID {
+            folioLog("snapshot: ОШИБКА — пара по умолчанию \(fresh.translationPairTitle), ожидали EN(US)→RU")
+        }
+
+        // Пользователь изменил выбор — он должен сохраниться.
+        fresh.translateSourceID = "en-GB"
+        fresh.translateTargetID = "de-DE"
+        fresh.speechEnabled = true
+        fresh.speechRate = 0.42
+        let reopened = SettingsStore(defaults: suite)
+        let saved = reopened.reloadFromDisk()
+        folioLog("snapshot: после изменения и повторного открытия — источник=\(saved.source), цель=\(saved.target), озвучка=\(saved.speechEnabled), скорость=\(String(format: "%.2f", saved.speechRate))")
+        if saved.source != "en-GB" || saved.target != "de-DE"
+            || !saved.speechEnabled || abs(saved.speechRate - 0.42) > 0.001 {
+            folioLog("snapshot: ОШИБКА — выбор пользователя не сохранился")
+        }
+        suite.removePersistentDomain(forName: suiteName)
+        folioLog("snapshot: проверка сохранения выбора языков завершена")
+
+        // Выключенная озвучка не должна читать текст.
+        let originalSpeechEnabled = settings.speechEnabled
+        settings.speechEnabled = false
+        let blocked = model.speech.speak("snapshot speech guard")
+        folioLog("snapshot: speak() при выключенном флаге = \(blocked) (ожидаем false)")
+        if blocked {
+            folioLog("snapshot: ОШИБКА — озвучка сработала при выключенном флаге")
+        }
+        folioLog("snapshot: системных голосов \(model.speech.availableVoices.count), по умолчанию: \(model.speech.defaultVoiceDescription)")
+
+        // Реальная озвучка — только по флагу: в обычном прогоне не шумим звуком.
+        if options.liveSpeech {
+            settings.speechEnabled = true
+            let started = model.speech.speak("Folio. Проверка озвучки выделенного текста.")
+            folioLog("snapshot: озвучка started=\(started), isSpeaking=\(model.speech.isSpeaking)")
+            pump(1.5)
+            folioLog("snapshot: озвучка во время чтения isSpeaking=\(model.speech.isSpeaking)")
+            model.speech.stop()
+            pump(0.3)
+            folioLog("snapshot: озвучка остановлена isSpeaking=\(model.speech.isSpeaking)")
+        }
+        settings.speechEnabled = originalSpeechEnabled
+
+        // Главное меню: команды приложения (Перевод, Озвучка, Настройки).
+        let menuTitles = NSApp.mainMenu?.items.map { $0.title } ?? []
+        folioLog("snapshot: главное меню = \(menuTitles.joined(separator: " | "))")
+        for expected in ["Перевод", "Озвучка"] where !menuTitles.contains(expected) {
+            folioLog("snapshot: ОШИБКА — в главном меню нет «\(expected)»")
+        }
+        if let appMenu = NSApp.mainMenu?.items.first?.submenu,
+           !appMenu.items.contains(where: { $0.title.contains("Настройки") }) {
+            folioLog("snapshot: ОШИБКА — в меню приложения нет пункта «Настройки…»")
+        }
+
+        // Контекстное меню: словарь, перевод, озвучка, настройки.
+        if let pageView = findPageView(in: window, page: 0) {
+            let wordTitles = pageView.debugContextMenuTitles(atWord: 9)
+            folioLog("snapshot: контекстное меню (слово) = \(wordTitles.joined(separator: " | "))")
+            for expected in ["словаре", "Перевести", "Озвучить", "Настройки…"]
+            where !wordTitles.contains(where: { $0.contains(expected) }) {
+                folioLog("snapshot: ОШИБКА — в контекстном меню нет пункта «\(expected)»")
+            }
+            if let selection = model.selection, !selection.isEmpty, let first = selection.wordIndices.first {
+                let selectionTitles = pageView.debugContextMenuTitles(atWord: first)
+                folioLog("snapshot: контекстное меню (выделение) = \(selectionTitles.joined(separator: " | "))")
+                if !selectionTitles.contains(where: { $0.contains("выделение") }) {
+                    folioLog("snapshot: ОШИБКА — для выделения меню не предлагает действия с выделением")
+                }
+            }
+        }
+
+        // Окно настроек — настоящее окно, снимок для документации.
+        SettingsWindow.shared.show()
+        pump(0.9)
+        if let settingsWindow = NSApp.windows.first(where: { $0.title == "Настройки Folio" }) {
+            capture(window: settingsWindow, name: "settings.png", options: options)
+            settingsWindow.orderOut(nil)
+            folioLog("snapshot: окно настроек снято (settings.png)")
+        } else {
+            folioLog("snapshot: ОШИБКА — окно настроек не появилось")
+        }
+        pump(0.3)
+
+        // Панель перевода. С --snapshot-translate идём настоящим путём:
+        // выделение → TranslationController.request → .translationTask → системный перевод.
+        var translationIsLive = false
+        if options.liveTranslation {
+            if let pageView = findPageView(in: window, page: 0) {
+                pageView.debugSelectFirstWords(16)
+                pump(0.3)
+                if let selection = model.selection, !selection.isEmpty {
+                    model.translation.request(text: selection.text,
+                                              sourceID: "en-US",
+                                              targetID: "ru-RU",
+                                              origin: "выделения")
+                    let finished = waitUntil(timeout: 40) {
+                        model.translation.phase == .done || {
+                            if case .failed = model.translation.phase { return true }
+                            return false
+                        }()
+                    }
+                    folioLog("snapshot: системный перевод — завершён=\(finished), фаза=\(model.translation.phase)")
+                    if case .done = model.translation.phase {
+                        translationIsLive = true
+                        folioLog("snapshot: перевод системы: «\(String(model.translation.translatedText.prefix(140)))»")
+                    } else if case .failed(let message) = model.translation.phase {
+                        folioLog("snapshot: перевод системы не удался: \(message) — показываю заглушку")
+                    }
+                }
+            }
+        }
+        if !translationIsLive {
+            model.translation.debugInjectResult(
+                source: "Attention is all you need. The dominant sequence transduction models are based on complex recurrent or convolutional neural networks.",
+                translated: "Внимание — это всё, что нужно. Доминирующие модели преобразования последовательностей основаны на сложных рекуррентных или свёрточных нейронных сетях.",
+                sourceID: "en-US",
+                targetID: "ru-RU"
+            )
+        }
+        pump(1.2)
+        if let sheet = window.attachedSheet {
+            capture(window: sheet, name: "translation-panel.png", options: options)
+            folioLog("snapshot: панель перевода снята (translation-panel.png, \(translationIsLive ? "реальный системный перевод" : "текст-заглушка"))")
+        } else {
+            folioLog("snapshot: ВНИМАНИЕ — панель перевода не появилась как sheet")
+        }
+        model.translation.isPanelPresented = false
+        pump(0.6)
     }
 
     // MARK: - Проверки кэша/консистентности
@@ -500,6 +671,14 @@ enum SnapshotRunner {
         lines.append("lookupPath: NSView.showDefinition(for:at:), force-click=pressureChange(stage 2) → handleDeepClick → lookUp, ⌘D=performLookUp")
         lines.append("zoom: \(String(format: "%.3f", model.zoom))")
         lines.append("debugMode: \(model.debugMode.rawValue)")
+        lines.append("speech: enabled=\(model.settings.speechEnabled) (default off), rate=\(String(format: "%.2f", model.settings.speechRate)), voices=\(model.speech.availableVoices.count)")
+        let translationFramework = {
+            if #available(macOS 15.0, *) { return "available (macOS 15+)" }
+            return "unavailable"
+        }()
+        lines.append("translation: pair=\(model.settings.translationPairTitle), framework=\(translationFramework)")
+        lines.append("contextMenu: словарь/тезаурус (showDefinition), перевод выделения, озвучка, копировать, настройки, разметка")
+        lines.append("translationPanel: \(options.liveTranslation ? "реальный системный перевод (--snapshot-translate)" : "демонстрационный текст — реальный перевод требует системных моделей")")
         lines.append("headings: \(model.headingRows.count)")
         for row in model.headingRows.prefix(30) {
             lines.append("  H\(row.level) p\(row.page + 1): \(row.title)")

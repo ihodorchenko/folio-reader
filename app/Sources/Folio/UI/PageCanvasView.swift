@@ -552,13 +552,41 @@ final class PageCanvasView: NSView {
         lastHoverPoint = point
         hoverWordIndex = geometry?.wordIndex(at: point, tolerance: 4)
         needsDisplay = true
+        return makeContextMenu()
+    }
 
+    /// Меню строится отдельно от события: так его содержимое можно проверить
+    /// в headless-приёмке (событие правого клика там не синтезируется).
+    private func makeContextMenu() -> NSMenu {
         let menu = NSMenu(title: "")
+        let onSelection = selectionIsUnderContextPoint()
+        let speechOn = model?.settings.speechEnabled ?? false
 
-        let lookUpItem = NSMenuItem(title: "Найти в словаре", action: #selector(contextLookUp(_:)), keyEquivalent: "d")
+        // 1. Системный словарь/тезаурус — тот же путь, что сильное нажатие (showDefinition).
+        let lookUpItem = NSMenuItem(title: onSelection ? "Найти слово в словаре" : "Найти в словаре",
+                                    action: #selector(contextLookUp(_:)), keyEquivalent: "d")
         lookUpItem.keyEquivalentModifierMask = .command
         lookUpItem.target = self
         menu.addItem(lookUpItem)
+
+        // 2. Перевод выделения/слова (системный Translation framework).
+        let translateItem = NSMenuItem(title: onSelection ? "Перевести выделение…" : "Перевести слово…",
+                                       action: #selector(contextTranslate(_:)), keyEquivalent: "t")
+        translateItem.keyEquivalentModifierMask = [.command, .option]
+        translateItem.target = self
+        translateItem.toolTip = "Пара языков: \(model?.settings.translationPairTitle ?? "—") (меняется в настройках ⌘,)"
+        menu.addItem(translateItem)
+
+        // 3. Озвучка (по умолчанию выключена — тогда пункт неактивен и объясняет, что делать).
+        let speakItem = NSMenuItem(title: onSelection ? "Озвучить выделение" : "Озвучить слово",
+                                   action: #selector(contextSpeak(_:)), keyEquivalent: "")
+        speakItem.target = self
+        speakItem.toolTip = speechOn
+            ? "Прочитать текст вслух (AVSpeechSynthesizer)"
+            : "Озвучка выключена — включите её в настройках (⌘,)"
+        menu.addItem(speakItem)
+
+        menu.addItem(.separator())
 
         let selectWordItem = NSMenuItem(title: "Выделить слово", action: #selector(contextSelectWord(_:)), keyEquivalent: "")
         selectWordItem.target = self
@@ -571,6 +599,11 @@ final class PageCanvasView: NSView {
 
         menu.addItem(.separator())
 
+        let settingsItem = NSMenuItem(title: "Настройки…", action: #selector(contextSettings(_:)), keyEquivalent: ",")
+        settingsItem.keyEquivalentModifierMask = .command
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+
         let debugItem = NSMenuItem(title: model?.showDebugOverlay == true ? "Скрыть разметку" : "Показать разметку",
                                    action: #selector(contextToggleDebug(_:)), keyEquivalent: "")
         debugItem.target = self
@@ -579,9 +612,60 @@ final class PageCanvasView: NSView {
         return menu
     }
 
+    /// Текст, к которому относится правый клик: выделение (если клик внутри него) или слово.
+    private func contextText() -> String? {
+        if selectionIsUnderContextPoint(), let selection, !selection.text.isEmpty {
+            return selection.text
+        }
+        guard let geometry, let point = contextPoint ?? lastHoverPoint else { return nil }
+        let index = geometry.wordIndex(at: point, tolerance: 10) ?? geometry.nearestWordIndex(to: point)
+        guard let index, let word = geometry.word(at: index) else { return nil }
+        let text = word.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
+    /// Правый клик попал в выделение (с допуском 6 pt — мышь редко попадает точно в глиф).
+    private func selectionIsUnderContextPoint() -> Bool {
+        guard let selection, selection.page == pageIndex, !selection.isEmpty else { return false }
+        guard let point = contextPoint ?? lastHoverPoint else { return true }
+        return selection.rects.contains { PageTextGeometry.distanceToRect(point, $0) <= 6 }
+    }
+
     @objc private func contextLookUp(_ sender: Any?) {
+        // Словарь по выделению: берём слово из выделения, а не «ближайшее к пикселю».
+        if selectionIsUnderContextPoint() {
+            lookUpAtHover()
+            return
+        }
         let point = contextPoint ?? lastHoverPoint ?? CGPoint(x: bounds.midX, y: bounds.midY)
         lookUp(at: point)
+    }
+
+    @objc private func contextTranslate(_ sender: Any?) {
+        guard let text = contextText() else {
+            folioLog("translate: под курсором нет текста")
+            NSSound.beep()
+            return
+        }
+        model?.translate(text, origin: selectionIsUnderContextPoint() ? "выделения" : "слова")
+    }
+
+    @objc private func contextSpeak(_ sender: Any?) {
+        guard let text = contextText() else {
+            folioLog("speech: под курсором нет текста")
+            NSSound.beep()
+            return
+        }
+        guard model?.settings.speechEnabled == true else {
+            folioLog("speech: озвучка выключена — открываю настройки")
+            model?.presentSettings()
+            return
+        }
+        model?.speak(text, origin: selectionIsUnderContextPoint() ? "выделения" : "слова")
+    }
+
+    @objc private func contextSettings(_ sender: Any?) {
+        model?.presentSettings()
     }
 
     @objc private func contextSelectWord(_ sender: Any?) {
@@ -658,6 +742,17 @@ final class PageCanvasView: NSView {
         folioLog("selftest: эмуляция force-click (stage 2) в точке (\(String(format: "%.1f", point.x)), \(String(format: "%.1f", point.y))) — вызываем тот же handleDeepClick → lookUp")
         handleDeepClick()
     }
+    /// Только для снапшот-приёмки: пункты контекстного меню в точке слова.
+    func debugContextMenuTitles(atWord index: Int) -> [String] {
+        guard let geometry, !geometry.isEmpty else { return [] }
+        let clamped = min(max(index, 0), geometry.words.count - 1)
+        let rect = geometry.words[clamped].word.bbox
+        contextPoint = CGPoint(x: rect.midX, y: rect.midY)
+        lastHoverPoint = contextPoint
+        hoverWordIndex = clamped
+        let menu = makeContextMenu()
+        return menu.items.map { $0.isSeparatorItem ? "—" : $0.title }
+    }
 }
 
 extension PageCanvasView: NSMenuItemValidation {
@@ -667,6 +762,13 @@ extension PageCanvasView: NSMenuItemValidation {
             return !(model?.selection?.isEmpty ?? true)
         case #selector(contextSelectWord(_:)), #selector(contextLookUp(_:)):
             return !(geometry?.isEmpty ?? true)
+        case #selector(contextTranslate(_:)):
+            if #available(macOS 15.0, *) {
+                return contextText() != nil
+            }
+            return false
+        case #selector(contextSpeak(_:)):
+            return contextText() != nil && (model?.settings.speechEnabled ?? false)
         default:
             return true
         }
