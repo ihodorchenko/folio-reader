@@ -136,14 +136,18 @@ enum SnapshotRunner {
         folioLog("snapshot: старт. out=\(options.outDir.path), pdf=\(options.pdf.path), ядро=\(coreVersion), dylib=\(corePath)")
 
         RenderStore.shared.synchronous = true
-        let model = ReaderModel.shared
-        model.configureForSnapshot()
 
         guard let window = waitForMainWindow(timeout: 20) else {
             folioLog("snapshot: ОКНО НЕ ПОЯВИЛОСЬ")
-            writeSummary(model: model, options: options, extra: ["error": "окно не создано"])
+            try? "error: окно не создано\n".write(to: options.outDir.appendingPathComponent("summary.txt"),
+                                               atomically: true, encoding: .utf8)
             exit(4)
         }
+        guard let model = ReaderModel.registry.allObjects.first else {
+            folioLog("snapshot: ОШИБКА — модель ридера не создалась")
+            exit(5)
+        }
+        model.configureForSnapshot()
         window.appearance = NSAppearance(named: .aqua)
         NSApp.appearance = NSAppearance(named: .aqua)
         window.setContentSize(NSSize(width: options.width, height: options.height))
@@ -252,7 +256,7 @@ enum SnapshotRunner {
         forceLayout(window)
 
         // 6. Самотесты словаря и копирования
-        runInteractionSelfTests(window: window, options: options)
+        runInteractionSelfTests(model: model, window: window, options: options)
 
         // 6b. Настройки, озвучка, перевод: значения по умолчанию, персистентность, меню
         runFeatureSelfTests(model: model, window: window, options: options)
@@ -273,7 +277,7 @@ enum SnapshotRunner {
         _exit(0)
     }
 
-    private static func runInteractionSelfTests(window: NSWindow, options: Options) {
+    private static func runInteractionSelfTests(model: ReaderModel, window: NSWindow, options: Options) {
         guard let pageView = findPageView(in: window, page: 0) else {
             folioLog("snapshot: НЕ НАЙДЕН PageCanvasView страницы 1 — самотесты пропущены")
             return
@@ -291,7 +295,7 @@ enum SnapshotRunner {
         // ⌘D при наличии выделения должен взять слово из выделения, а не из hover.
         PageCanvasView.active = pageView
         folioLog("snapshot: проверяем ⌘D при выделении (ожидаем слово из выделения, source=selection)")
-        ReaderModel.shared.performLookUp()
+        model.performLookUp()
         pump(0.3)
         pageView.copy(nil) // тот же путь, что ⌘C через responder chain
         pump(0.15)

@@ -72,10 +72,20 @@ struct ScrollRequest: Equatable {
 @Observable
 @MainActor
 final class ReaderModel {
-    // Единственный экземпляр для интерактивного окна (команды меню тоже смотрят сюда).
-    static let shared = ReaderModel()
+    /// Все живые модели (по одной на окно). Слабые ссылки: моделью владеет сцена.
+    @MainActor static let registry = NSHashTable<ReaderModel>.weakObjects()
 
-    private static let lastDocumentKey = "Folio.lastDocumentPath"
+    /// Модель активного окна — для ⌘C/⌘D из мониторов событий и пунктов меню.
+    @MainActor static var active: ReaderModel? {
+        if let window = NSApp.keyWindow, let model = model(for: window) { return model }
+        return registry.allObjects.first
+    }
+
+    /// Модель, привязанная к конкретному окну (каждое окно — свой документ).
+    @MainActor static func model(for window: NSWindow?) -> ReaderModel? {
+        guard let window else { return nil }
+        return registry.allObjects.first { $0.window === window }
+    }
 
     // MARK: Сервисы: настройки, озвучка, перевод
 
@@ -85,6 +95,12 @@ final class ReaderModel {
     let speech = SpeechService.shared
     /// Состояние перевода выделенного фрагмента (сессию создаёт SwiftUI-хост).
     let translation = TranslationController()
+
+    // MARK: Окно
+
+    /// Окно, в котором живёт эта модель (проставляется через `WindowAccessor`).
+    private(set) weak var window: NSWindow?
+    private var windowCloseObserver: NSObjectProtocol?
 
     // MARK: Документ
 
@@ -142,6 +158,46 @@ final class ReaderModel {
     var scrollRequest: ScrollRequest?
     private var searchTask: Task<Void, Never>?
     private var didBootstrap = false
+    /// Восстановление последней книги — только один раз за запуск приложения.
+    private static var hasRestoredLastDocument = false
+    private var positionSaveTask: Task<Void, Never>?
+    private var pendingRestorePosition: ReadingPosition?
+    private var windowAttached = false
+
+    // MARK: - Инициализация
+
+    init() {
+        Self.registry.add(self)
+    }
+
+    /// Окно стало активным: именно эту книгу восстанавливать при следующем запуске.
+    func activate() {
+        guard let url = documentURL else { return }
+        ReadingPositionStore.setLastDocument(url)
+    }
+
+    /// Привязка к окну: нужно для мониторов ⌘C/⌘D, сохранения позиции и отчётов.
+    func attach(window: NSWindow?) {
+        guard let window, window !== self.window else { return }
+        self.window = window
+        // Свои окна не отдаём системному восстановлению: иначе при следующем
+        // запуске macOS поднимает столько окон, сколько было открыто.
+        window.isRestorable = false
+        if let windowCloseObserver {
+            NotificationCenter.default.removeObserver(windowCloseObserver)
+        }
+        windowCloseObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: window, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                ReaderModel.model(for: window)?.persistReadingPosition()
+            }
+        }
+        if !windowAttached {
+            windowAttached = true
+            folioLog("window: окно привязано к модели, документ=\(documentURL?.lastPathComponent ?? "—")")
+        }
+    }
 
     /// Префиксы ключей кэша рендера: в ключе есть отпечаток документа,
     /// чтобы после открытия другого PDF не показать чужую страницу.
@@ -246,43 +302,54 @@ final class ReaderModel {
 
     // MARK: - Открытие документа
 
-    /// Документ, который Finder/`open` передал приложению до появления окна.
-    private var pendingExternalOpen: URL?
-
-    /// Вызывается из AppDelegate.application(_:open:) — «Открыть с помощью → Folio».
-    func openFromFinder(_ url: URL) {
-        guard url.isFileURL else { return }
-        if didBootstrap {
-            open(url: url)
-        } else {
-            pendingExternalOpen = url
-        }
-    }
-
-    func bootstrapIfNeeded() {
+    /// Старт сцены: документ из значения окна, из отложенной очереди или последний открытый.
+    func start(documentURL: URL?) {
         guard !didBootstrap, !snapshotMode else { return }
         didBootstrap = true
-        if snapshotMode { return }
-        // Приоритет: файл, переданный LaunchServices, выше «последнего документа».
-        if let pending = pendingExternalOpen {
-            pendingExternalOpen = nil
+        WindowReport.event("model.start value=\(documentURL?.lastPathComponent ?? "—")")
+
+        // 1. Документ, с которым создано окно (Finder «Открыть с помощью» / ⌘N с файлом).
+        if let url = documentURL {
+            open(url: url)
+            return
+        }
+        // 2. Файл, пришедший до появления первого окна.
+        if let pending = WindowRouter.shared.takePendingURL() {
             open(url: pending)
             return
         }
-        let args = CommandLine.arguments.dropFirst().filter { !$0.hasPrefix("-") }
-        if let path = args.first, FileManager.default.fileExists(atPath: path) {
+        // 3. PDF из аргументов командной строки (запуск из терминала).
+        //    Берём только *.pdf: у флагов вроде --window-report тоже есть значения.
+        let candidates = CommandLine.arguments.dropFirst().filter {
+            !$0.hasPrefix("-") && $0.lowercased().hasSuffix(".pdf")
+        }
+        if let path = candidates.first, FileManager.default.fileExists(atPath: path) {
             open(url: URL(fileURLWithPath: path))
             return
         }
-        if let saved = UserDefaults.standard.string(forKey: Self.lastDocumentKey),
-           FileManager.default.fileExists(atPath: saved) {
-            open(url: URL(fileURLWithPath: saved))
-            return
+        // 4. Последний открытый документ — восстанавливаем с небольшой задержкой:
+        //    open-событие из Finder приходит в первые ~100 мс, и тогда старая книга
+        //    не нужна (иначе получалось две версии приложения).
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard let self, self.documentURL == nil, !Self.hasRestoredLastDocument else { return }
+            Self.hasRestoredLastDocument = true
+            guard let last = ReadingPositionStore.lastDocument() else { return }
+            folioLog("restore: открываю последний документ \(last.path)")
+            WindowReport.event("restore последнего документа")
+            self.open(url: last)
         }
-        // Ничего не открыто — показываем пустое состояние с кнопкой «Открыть…».
+        // 5. Если ничего не пришло — пустое состояние с кнопкой «Открыть…».
     }
 
     func open(url: URL) {
+        WindowReport.event("model.open \(url.lastPathComponent)")
+        // Место в текущем документе не теряем при переходе к другой книге.
+        persistReadingPosition()
+        let savedPosition = snapshotMode ? nil : ReadingPositionStore.load(for: url)
+        pendingRestorePosition = savedPosition
+        ReadingPositionStore.setLastDocument(url)
+
         loadTask?.cancel()
         searchTask?.cancel()
         let token = UUID()
@@ -356,9 +423,14 @@ final class ReaderModel {
                 self.selectedHeadingID = self.computedActiveHeadingID
                 folioLog("open: структура — заголовков \(loadedStructure.headings.count), tagged=\(loadedStructure.tagged)")
 
+                if let position = self.pendingRestorePosition {
+                    self.pendingRestorePosition = nil
+                    self.applyReadingPosition(position)
+                }
+
                 // Кэш последнего документа нужен только интерактивному режиму.
                 if !self.snapshotMode {
-                    UserDefaults.standard.set(url.path, forKey: Self.lastDocumentKey)
+                    ReadingPositionStore.setLastDocument(url)
                 }
             } catch {
                 guard self.isCurrent(token) else { return }
@@ -439,6 +511,7 @@ final class ReaderModel {
         if let id = computedActiveHeadingID {
             selectedHeadingID = id
         }
+        schedulePositionSave()
     }
 
     func goToPage(_ page: Int) {
@@ -698,14 +771,62 @@ final class ReaderModel {
         SettingsWindow.shared.show()
     }
 
-    /// ⌘D и пункт меню «Найти в словаре»: используем активную страницу.
+    /// ⌘D и пункт меню «Найти в словаре»: активная страница активного окна.
     func performLookUp() {
-        guard let pageView = PageCanvasView.active else {
+        let pageView = PageCanvasView.active(in: window) ?? PageCanvasView.active
+        guard let pageView else {
             folioLog("lookup: нет активной страницы (сначала кликните по странице)")
             NSSound.beep()
             return
         }
         pageView.lookUpAtHover()
+    }
+
+    // MARK: - Позиция чтения
+
+    /// Сохранить страницу/прокрутку/зум текущего документа.
+    func persistReadingPosition() {
+        guard !snapshotMode, let url = documentURL, pageCount > 0, !isLoading else { return }
+        let position = ReadingPosition(page: currentPage,
+                                       progress: currentPageProgress,
+                                       zoom: zoom,
+                                       fitWidth: fitWidth)
+        ReadingPositionStore.save(position, for: url)
+    }
+
+    /// Сохранение с задержкой: прокрутка меняет позицию десятки раз в секунду.
+    private func schedulePositionSave() {
+        guard !snapshotMode else { return }
+        positionSaveTask?.cancel()
+        positionSaveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            guard !Task.isCancelled else { return }
+            self?.persistReadingPosition()
+        }
+    }
+
+    /// Применить сохранённую позицию после загрузки структуры документа.
+    private func applyReadingPosition(_ position: ReadingPosition) {
+        let page = min(max(position.page, 0), max(pageCount - 1, 0))
+        if position.fitWidth {
+            applyFitWidth(pageWidth: pageSize(page).width)
+        } else {
+            setZoom(position.zoom)
+        }
+        currentPage = page
+        currentPageProgress = min(max(position.progress, 0), 1)
+        selectedHeadingID = computedActiveHeadingID
+        let height = Double(pageSize(page).height)
+        let y = currentPageProgress * max(height, 1)
+        let bbox = PcRect(x: 0, y: y, w: 1, h: 1)
+        folioLog("restore: страница \(page + 1) из \(pageCount), прокрутка \(String(format: "%.0f", currentPageProgress * 100))%, зум \(String(format: "%.2f", zoom))")
+        // Даём DetailView появиться, иначе onChange(scrollRequest) не сработает.
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard let self else { return }
+            self.scrollTo(page: page, bbox: bbox)
+            self.updateVisiblePage(page, progress: position.progress)
+        }
     }
 
     // MARK: - Снапшот-режим

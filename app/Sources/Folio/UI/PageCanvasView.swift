@@ -10,6 +10,23 @@ final class PageCanvasView: NSView {
     /// Последняя страница, получившая фокус/наведение — для ⌘D из меню.
     static weak var active: PageCanvasView?
 
+    /// Страница в конкретном (обычно активном) окне: при нескольких окнах ⌘D
+    /// должен работать с тем окном, где фокус, а не с последним наведённым.
+    static func active(in window: NSWindow?) -> PageCanvasView? {
+        guard let window, let root = window.contentView else { return nil }
+        var found: PageCanvasView?
+        func walk(_ view: NSView) {
+            if found != nil { return }
+            if let pageView = view as? PageCanvasView {
+                found = pageView
+                return
+            }
+            for subview in view.subviews { walk(subview) }
+        }
+        walk(root)
+        return found
+    }
+
     let pageIndex: Int
     weak var model: ReaderModel?
 
@@ -368,12 +385,17 @@ final class PageCanvasView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        PageCanvasView.active = self
+        activateIfKeyWindow()
     }
 
     override func mouseMoved(with event: NSEvent) {
-        PageCanvasView.active = self
+        activateIfKeyWindow()
         updateHover(atWindowPoint: event.locationInWindow)
+    }
+
+    private func activateIfKeyWindow() {
+        guard window?.isKeyWindow ?? true else { return }
+        PageCanvasView.active = self
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -397,7 +419,7 @@ final class PageCanvasView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        PageCanvasView.active = self
+        activateIfKeyWindow()
         let local = convert(event.locationInWindow, from: nil)
         let point = pagePoint(from: local)
         mouseDownPoint = point

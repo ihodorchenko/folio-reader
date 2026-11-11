@@ -1,0 +1,79 @@
+import AppKit
+
+/// Журнал окон и событий жизненного цикла — для headless-проверок.
+///
+/// Включается либо аргументом `--window-report <path>`, либо (надёжнее для
+/// запуска из Finder) ключами в UserDefaults:
+///
+///     defaults write dev.folio.reader Folio.windowReport -bool YES
+///     defaults write dev.folio.reader Folio.windowReportPath /tmp/folio-windows.txt
+///
+/// Пишет последовательность событий (запуск, open-события, появление сцен,
+/// открытие документов) и снимок состояния окон раз в секунду.
+@MainActor
+enum WindowReport {
+    static var isEnabled: Bool {
+        CommandLine.arguments.contains("--window-report")
+            || UserDefaults.standard.bool(forKey: "Folio.windowReport")
+    }
+
+    private static var reportPath: String {
+        let args = CommandLine.arguments
+        if let index = args.firstIndex(of: "--window-report"), index + 1 < args.count {
+            return args[index + 1]
+        }
+        return UserDefaults.standard.string(forKey: "Folio.windowReportPath")
+            ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("folio-windows.txt")
+    }
+
+    private static var events: [String] = []
+    private static var timer: Timer?
+
+    // MARK: - События
+
+    static func event(_ message: @autoclosure () -> String) {
+        guard isEnabled else { return }
+        let stamp = String(format: "%.3f", Date().timeIntervalSince1970)
+        events.append("[\(stamp)] \(message())")
+        if events.count > 200 { events.removeFirst(events.count - 200) }
+        write(reason: "event")
+    }
+
+    static func startIfNeeded() {
+        guard isEnabled else { return }
+        event("отчёт включён")
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            MainActor.assumeIsolated {
+                write(reason: "tick")
+            }
+        }
+    }
+
+    // MARK: - Снимок состояния
+
+    static func write(reason: String) {
+        guard isEnabled else { return }
+        var lines: [String] = []
+        lines.append("report: \(reason)")
+        lines.append("args: \(CommandLine.arguments.joined(separator: " "))")
+        let windows = NSApp.windows
+        lines.append("nsapp.windows: \(windows.count)")
+        for (index, window) in windows.enumerated() {
+            let visible = window.isVisible ? "visible" : "hidden"
+            let key = window.isKeyWindow ? "key" : "-"
+            lines.append("  [\(index)] class=\(type(of: window)) title=«\(window.title)» \(visible) \(key) frame=\(window.frame) sheet=\(window.attachedSheet != nil)")
+        }
+        let models = ReaderModel.registry.allObjects
+        lines.append("reader models: \(models.count)")
+        for model in models {
+            lines.append("  model \(ObjectIdentifier(model)) doc=\(model.documentURL?.lastPathComponent ?? "—") page=\(model.currentPage + 1) window=«\(model.window?.title ?? "—")» key=\(model.window?.isKeyWindow == true)")
+        }
+        if !events.isEmpty {
+            lines.append("events:")
+            lines.append(contentsOf: events.map { "  \($0)" })
+        }
+        let text = lines.joined(separator: "\n") + "\n"
+        try? text.write(toFile: reportPath, atomically: true, encoding: .utf8)
+    }
+}
