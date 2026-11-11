@@ -28,6 +28,22 @@ and exact word boxes:
 
 ---
 
+## Download
+
+Prebuilt **Folio 1.0.0** for Apple Silicon: [latest release](https://github.com/ihodorchenko/folio-reader/releases/latest)
+→ `Folio.app.zip` (~5 MB, SHA-256 published with the release).
+
+1. Unzip and move `Folio.app` to `/Applications`.
+2. The bundle is **ad-hoc signed** (not notarized): on first launch use **right-click → Open**, or
+   `xattr -dr com.apple.quarantine /Applications/Folio.app`. Apple's Developer ID signature plus
+   notarization are still on the roadmap.
+3. Open a PDF with **Open With → Folio**, drag & drop into the window, or `⌘O`.
+
+The archive is a thin **arm64** build and needs **macOS 14+**. To build from source see
+[Quick start](#quick-start).
+
+---
+
 ## What it does
 
 - **Open PDFs** via `⌘O`, drag & drop, command-line argument or Finder ("Open With → Folio");
@@ -217,6 +233,8 @@ so a stray shortcut never starts reading in a library.
 ---
 
 ## Quick start
+
+Prefer the prebuilt app? See [Download](#download) above.
 
 Requirements: macOS 14+, Xcode 16+ (verified on macOS 27.2 / Xcode 27.2, arm64) and a Rust
 toolchain (`rustup`, 1.92+).
