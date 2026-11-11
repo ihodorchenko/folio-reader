@@ -1,0 +1,23 @@
+# macOS
+.DS_Store
+
+# Build artifacts
+core/target/
+app/.build/
+dist/
+*.iconset
+
+# Vendored PDFium binary (run scripts/download-pdfium.sh instead)
+core/vendor/pdfium/
+
+# Local toolchain (installed outside the repository in the development workspace)
+.toolchain/
+
+# Third-party test fixture (run scripts/fetch-samples.sh instead)
+samples/attention.pdf
+samples/attention.pdf.part
+
+# Editors
+.vscode/
+.idea/
+*.swp
