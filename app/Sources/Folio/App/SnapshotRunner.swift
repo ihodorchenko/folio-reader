@@ -420,10 +420,21 @@ enum SnapshotRunner {
         if let recentsDefaults = UserDefaults(suiteName: recentsSuite) {
             recentsDefaults.removePersistentDomain(forName: recentsSuite)
             let store = RecentDocumentsStore(defaults: recentsDefaults)
-            let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            let attention = root.appendingPathComponent("samples/attention.pdf")
-            let russian = root.appendingPathComponent("samples/sample-ru.pdf")
-            let noText = root.appendingPathComponent("samples/no-text.pdf")
+            // Каталог с фикстурами — от открытого документа, а не от cwd: приложение
+            // могут запустить из любого каталога (например, из «/» как Finder).
+            let samplesDir = model.documentURL?.deletingLastPathComponent()
+                ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("samples")
+            let attention = samplesDir.appendingPathComponent("attention.pdf")
+            let russian = samplesDir.appendingPathComponent("sample-ru.pdf")
+            let noText = samplesDir.appendingPathComponent("no-text.pdf")
+
+            guard FileManager.default.fileExists(atPath: attention.path),
+                  FileManager.default.fileExists(atPath: russian.path),
+                  FileManager.default.fileExists(atPath: noText.path) else {
+                folioLog("snapshot: проверка недавних пропущена — нет фикстур в \(samplesDir.path)")
+                recentsDefaults.removePersistentDomain(forName: recentsSuite)
+                return
+            }
 
             store.note(attention)
             store.note(russian)
