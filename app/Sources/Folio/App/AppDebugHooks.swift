@@ -31,11 +31,16 @@ enum AppDebugHooks {
            let page = Int(pageArgument) {
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 1_800_000_000)
+                let target = ReaderModel.active ?? model
                 let index = max(0, page - 1)
-                model.goToPage(index)
-                model.updateVisiblePage(index, progress: 0.25)
-                model.persistReadingPosition()
-                folioLog("debug: открыта страница \(page), позиция чтения сохранена")
+                if let zoomValue = value(for: "--zoom", defaultsKey: "Folio.debugZoom").flatMap(Double.init) {
+                    target.setZoom(zoomValue / 100.0)
+                    folioLog("debug: зум \(zoomValue)%")
+                }
+                target.goToPage(index)
+                target.updateVisiblePage(index, progress: 0.25)
+                target.persistReadingPosition()
+                folioLog("debug: открыта страница \(page) в окне «\(target.window?.title ?? "—")», позиция сохранена")
             }
         }
 
@@ -54,6 +59,32 @@ enum AppDebugHooks {
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                 folioLog("debug: после выбора в модели \(ReaderModel.active?.documentURL?.lastPathComponent ?? "—")")
                 WindowReport.write(reason: "после выбора недавнего")
+            }
+        }
+
+        // Сценарий «открыть другой документ, затем вернуться к первому»:
+        // Folio.debugOpenSequence = "3:/path/b.pdf;7:/path/a.pdf"
+        if let sequence = value(for: "--open-sequence", defaultsKey: "Folio.debugOpenSequence") {
+            for part in sequence.split(separator: ";") {
+                let pieces = part.split(separator: ":", maxSplits: 1)
+                guard pieces.count == 2, let delay = Double(pieces[0]) else { continue }
+                let path = String(pieces[1])
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: UInt64(max(delay, 0.1) * 1_000_000_000))
+                    let target = ReaderModel.active ?? model
+                    folioLog("debug: последовательность — открываю \(path) в окне «\(target.window?.title ?? "—")»")
+                    target.open(url: URL(fileURLWithPath: path))
+                }
+            }
+        }
+
+        if let closeAfter = value(for: "--close-window", defaultsKey: "Folio.debugCloseWindow").flatMap(Double.init) {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(max(closeAfter, 0.2) * 1_000_000_000))
+                if let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) {
+                    folioLog("debug: закрываю окно «\(window.title)»")
+                    window.close()
+                }
             }
         }
 

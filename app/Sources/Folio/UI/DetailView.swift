@@ -93,6 +93,7 @@ struct DetailView: View {
         if let bbox = request.bbox, pageHeight > 0 {
             fraction = min(max(Double(bbox.y) / pageHeight, 0), 1)
         }
+        folioLog("scroll: страница \(page + 1), доля \(String(format: "%.2f", fraction)), token=\(request.token)")
         withAnimation(.easeInOut(duration: 0.28)) {
             proxy.scrollTo(page, anchor: UnitPoint(x: 0.5, y: fraction))
         }

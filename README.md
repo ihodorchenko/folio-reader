@@ -100,6 +100,12 @@ The application UI is currently in Russian; the code, documentation and tooling 
 The Rust core is loaded with `dlopen`, so building the Swift app never requires Rust
 tooling; and the core itself loads PDFium at runtime, which keeps the native build simple.
 
+Page rendering goes through `RenderStore`: an `NSCache` keyed by document fingerprint, page and
+scale, with warm prefetch of the neighbouring pages. Prefetch and the visible page often request
+the same key, so a render that is already in flight is shared — every requester subscribes to it
+and is notified when the image is ready. Without that subscription a page whose render was started
+by prefetch stayed white until some unrelated SwiftUI update happened to retry it.
+
 ### Interface contract
 
 [`CONTRACT.md`](CONTRACT.md) is the single source of truth between the layers: C ABI,
@@ -323,6 +329,11 @@ setting is off, and the panel is filled with demo text.
 - `cargo test` — unit tests for grouping plus integration tests on real PDFs (28 tests).
 - The app: snapshots of `attention.pdf` at 100/150/200%, Cyrillic document, `no-text.pdf`,
   document switching (cache invalidation), dictionary path and `⌘C` — verified via logs.
+- Rendering race: `--snapshot` starts a `prefetch` for a page and immediately requests the
+  same page, asserting that the image is delivered through the waiter callback. The multi-window
+  scenario from the bug report (two books open, one closed, the first book reopened at 205% zoom)
+  was re-run on the signed `.app`: the reopened window lands on the remembered page and paints it
+  (`image=2509×3247`, `renderErrors: 0`), while the other window keeps its own book.
 - Windows and session restore, verified against the signed `.app` through LaunchServices
   (`open -a dist/Folio.app [file.pdf]`, window list checked with `CGWindowListCopyWindowInfo`
   and an in-app report enabled by `defaults write dev.folio.reader Folio.windowReport -bool YES`):

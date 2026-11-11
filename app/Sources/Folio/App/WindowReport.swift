@@ -50,6 +50,17 @@ enum WindowReport {
         }
     }
 
+    private static func pageViews(in window: NSWindow) -> [PageCanvasView] {
+        guard let root = window.contentView else { return [] }
+        var result: [PageCanvasView] = []
+        func walk(_ view: NSView) {
+            if let pageView = view as? PageCanvasView { result.append(pageView) }
+            for subview in view.subviews { walk(subview) }
+        }
+        walk(root)
+        return result
+    }
+
     // MARK: - Снимок состояния
 
     static func write(reason: String) {
@@ -64,11 +75,18 @@ enum WindowReport {
             let key = window.isKeyWindow ? "key" : "-"
             lines.append("  [\(index)] class=\(type(of: window)) title=«\(window.title)» \(visible) \(key) frame=\(window.frame) sheet=\(window.attachedSheet != nil)")
         }
+        for (index, window) in windows.enumerated() where window.isVisible {
+            let pages = pageViews(in: window)
+            if !pages.isEmpty {
+                lines.append("  window[\(index)] pages: \(pages.map(\.debugSummary).joined(separator: " ; "))")
+            }
+        }
         let models = ReaderModel.registry.allObjects
         lines.append("reader models: \(models.count)")
         for model in models {
-            lines.append("  model \(ObjectIdentifier(model)) doc=\(model.documentURL?.lastPathComponent ?? "—") page=\(model.currentPage + 1) window=«\(model.window?.title ?? "—")» key=\(model.window?.isKeyWindow == true)")
+            lines.append("  model \(ObjectIdentifier(model)) doc=\(model.documentURL?.lastPathComponent ?? "—") page=\(model.currentPage + 1) pages=\(model.pageCount) hasDoc=\(model.doc != nil) structure=\(model.structure != nil) zoom=\(String(format: "%.2f", model.zoom)) renderScale=\(String(format: "%.2f", model.renderScale)) window=«\(model.window?.title ?? "—")» key=\(model.window?.isKeyWindow == true)")
         }
+        lines.append("renderErrors: \(RenderStore.shared.errorCount) last=\(RenderStore.shared.lastError)")
         if let recentMenu = RecentDocumentsMenu.submenu() {
             let titles = recentMenu.items.filter { !$0.isSeparatorItem }.map { $0.title }
             lines.append("recentMenu (\(titles.count)): \(titles.joined(separator: " | "))")

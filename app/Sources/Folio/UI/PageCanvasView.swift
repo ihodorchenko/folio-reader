@@ -45,6 +45,10 @@ final class PageCanvasView: NSView {
     private var pendingScale: CGFloat = .nan
     /// Масштаб, на котором рендер уже провалился — не повторяем бесконечно.
     private var failedScale: CGFloat = .nan
+    /// Масштабы, для которых уже была одна повторная попытка после сбоя.
+    private var retriedScales = Set<CGFloat>()
+    /// Лог «нет документа» пишем один раз, чтобы не засорять консоль при открытии.
+    private var loggedMissingDocument = false
     var selection: Selection? { didSet { needsDisplay = true } }
     var searchRects: [PcRect] = [] { didSet { needsDisplay = true } }
     var debugMode: DebugOverlayMode = .off { didSet { needsDisplay = true } }
@@ -99,6 +103,8 @@ final class PageCanvasView: NSView {
             imageScale = .nan
             pendingScale = .nan
             failedScale = .nan
+            retriedScales = []
+            loggedMissingDocument = false
             // Другой документ — геометрия и выделение от прежнего невалидны.
             layoutInfo = nil
             geometry = nil
@@ -134,11 +140,20 @@ final class PageCanvasView: NSView {
     // MARK: - Изображение страницы
 
     func ensureImage() {
-        guard let doc = model?.doc, pageSize.width > 1, pageSize.height > 1 else { return }
+        guard let doc = model?.doc, pageSize.width > 1, pageSize.height > 1 else {
+            if !loggedMissingDocument {
+                loggedMissingDocument = true
+                folioLog("render: стр. \(pageIndex + 1) ждёт документ/размер (doc=\(model?.doc != nil), size=\(pageSize))")
+            }
+            return
+        }
         let scale = renderScale
         if image != nil, abs(imageScale - scale) < 0.05 { return }
         if image != nil, abs(pendingScale - scale) < 0.05 { return }
-        if abs(failedScale - scale) < 0.05 { return }
+        if abs(failedScale - scale) < 0.05 {
+            folioLog("render: пропуск стр. \(pageIndex + 1) — предыдущая попытка scale=\(scale) не удалась")
+            return
+        }
         let prefix = "page:\(documentIdentity)"
         let key = RenderStore.key(prefix, pageIndex, Double(scale))
         if let cached = RenderStore.shared.cached(key) {
@@ -154,6 +169,16 @@ final class PageCanvasView: NSView {
             guard let rendered else {
                 self.failedScale = requested
                 folioLog("render: страница \(page + 1) не отрендерилась (scale \(String(format: "%.2f", Double(requested))))")
+                // Транзиентный сбой (например, документ менялся) — одна повторная попытка.
+                if !self.retriedScales.contains(requested) {
+                    self.retriedScales.insert(requested)
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 600_000_000)
+                        guard abs(self.failedScale - requested) < 0.05 else { return }
+                        self.failedScale = .nan
+                        self.ensureImage()
+                    }
+                }
                 return
             }
             self.failedScale = .nan
@@ -740,6 +765,12 @@ final class PageCanvasView: NSView {
     }
 
     var currentDocumentIdentity: String { documentIdentity }
+
+    /// Состояние рендера страницы одной строкой — для отладочного отчёта.
+    var debugSummary: String {
+        let pixels = debugImagePixelSize.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil"
+        return "page=\(pageIndex + 1) image=\(pixels) layout=\(layoutInfo != nil) zoom=\(String(format: "%.2f", zoom)) doc=\(documentIdentity.prefix(18))"
+    }
 
     /// Подсветка слова как при наведении мышью (для снапшота).
     func debugHoverWord(_ index: Int) {

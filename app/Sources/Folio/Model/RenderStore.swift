@@ -18,10 +18,27 @@ final class RenderStore: @unchecked Sendable {
     private let cache = NSCache<NSString, Box>()
     private let lock = NSLock()
     private var inflight = Set<String>()
+    /// Кто ждёт уже запущенный рендер. Раньше потребитель, попавший в «уже рисуется»,
+    /// получал nil без колбэка и оставался с белой страницей (гонка с prefetch).
+    private var waiters: [String: [Waiter]] = [:]
+
+    private struct Waiter: @unchecked Sendable {
+        let notify: @MainActor (CGImage?) -> Void
+    }
     private let queue = DispatchQueue(label: "folio.render", qos: .userInitiated, attributes: .concurrent)
 
     /// Только для снапшот-режима: рендерить синхронно, без фоновой очереди.
     var synchronous = false
+
+    /// Диагностика для отладочного отчёта: сколько рендеров упало и почему.
+    private(set) var errorCount = 0
+    private(set) var lastError = "—"
+
+    private func noteError(page: Int, scale: Double, error: Error?) {
+        errorCount += 1
+        lastError = String(format: "page=%d scale=%.2f: %@", page, scale, error.map { String(describing: $0) } ?? "nil")
+        folioLog("render: ОШИБКА \(lastError)")
+    }
 
     private init() {
         cache.totalCostLimit = 120 * 1024 * 1024
@@ -45,7 +62,17 @@ final class RenderStore: @unchecked Sendable {
         cache.removeAllObjects()
         lock.lock()
         inflight.removeAll()
+        let pending = waiters
+        waiters.removeAll()
         lock.unlock()
+        // Не оставляем ожидающих без ответа: пусть перезапросят рендер.
+        if !pending.isEmpty {
+            Task { @MainActor in
+                for group in pending.values {
+                    for waiter in group { waiter.notify(nil) }
+                }
+            }
+        }
     }
 
     /// Возвращает изображение, если оно уже готово, иначе запускает фоновый рендер
@@ -60,25 +87,43 @@ final class RenderStore: @unchecked Sendable {
         if let cached = cached(key) { return cached }
 
         if synchronous {
-            let rendered = try? provider.render(page, scale: scale)
-            if let rendered { store(key, rendered) }
-            else { folioLog("render: ошибка рендера страницы \(page) scale=\(scale)") }
-            return rendered
+            do {
+                let rendered = try provider.render(page, scale: scale)
+                store(key, rendered)
+                return rendered
+            } catch {
+                noteError(page: page, scale: scale, error: error)
+                return nil
+            }
         }
 
         lock.lock()
-        let alreadyRunning = inflight.contains(key)
-        if !alreadyRunning { inflight.insert(key) }
+        if inflight.contains(key) {
+            // Рендер уже идёт (например, его начал prefetch) — подписываемся на результат.
+            waiters[key, default: []].append(Waiter(notify: completion))
+            lock.unlock()
+            return nil
+        }
+        inflight.insert(key)
         lock.unlock()
-        guard !alreadyRunning else { return nil }
 
         queue.async {
-            let rendered = try? provider.render(page, scale: scale)
+            let rendered: CGImage?
+            do {
+                rendered = try provider.render(page, scale: scale)
+            } catch {
+                self.noteError(page: page, scale: scale, error: error)
+                rendered = nil
+            }
             self.lock.lock()
             self.inflight.remove(key)
+            let pending = self.waiters.removeValue(forKey: key) ?? []
             self.lock.unlock()
             if let rendered { self.store(key, rendered) }
-            Task { @MainActor in completion(rendered) }
+            Task { @MainActor in
+                completion(rendered)
+                for waiter in pending { waiter.notify(rendered) }
+            }
         }
         return nil
     }
@@ -94,11 +139,23 @@ final class RenderStore: @unchecked Sendable {
         lock.unlock()
         guard !running else { return }
         queue.async {
-            let rendered = try? provider.render(page, scale: scale)
+            let rendered: CGImage?
+            do {
+                rendered = try provider.render(page, scale: scale)
+            } catch {
+                self.noteError(page: page, scale: scale, error: error)
+                rendered = nil
+            }
             self.lock.lock()
             self.inflight.remove(key)
+            let pending = self.waiters.removeValue(forKey: key) ?? []
             self.lock.unlock()
             if let rendered { self.store(key, rendered) }
+            if !pending.isEmpty {
+                Task { @MainActor in
+                    for waiter in pending { waiter.notify(rendered) }
+                }
+            }
         }
     }
 }

@@ -369,6 +369,25 @@ enum SnapshotRunner {
         }
         settings.speechEnabled = originalSpeechEnabled
 
+        // Гонка prefetch/render: страница, запрошенная во время префетча, должна
+        // получить картинку через колбэк, а не остаться белой.
+        if let doc = model.doc {
+            RenderStore.shared.synchronous = false
+            let scale = 1.5
+            let prefix = "race-test:\(UUID().uuidString)"
+            RenderStore.shared.prefetch(page: 3, scale: scale, provider: doc, prefix: prefix)
+            var receivedSize: CGSize?
+            RenderStore.shared.image(page: 3, scale: scale, provider: doc, prefix: prefix) { image in
+                receivedSize = image.map { CGSize(width: $0.width, height: $0.height) }
+            }
+            let gotImage = waitUntil(timeout: 6) { receivedSize != nil }
+            folioLog("snapshot: гонка prefetch/render — картинка получена=\(gotImage), размер=\(String(describing: receivedSize))")
+            if !gotImage {
+                folioLog("snapshot: ОШИБКА — страница, запрошенная во время prefetch, не получила изображение")
+            }
+            RenderStore.shared.synchronous = true
+        }
+
         // Недавние документы: MRU-порядок, дедупликация, лимит, очистка.
         // Проверяем на временном UserDefaults suite — реальный список не трогаем.
         let recentsSuite = "Folio.snapshot.recents"

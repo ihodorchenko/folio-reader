@@ -823,12 +823,22 @@ final class ReaderModel {
         let y = currentPageProgress * max(height, 1)
         let bbox = PcRect(x: 0, y: y, w: 1, h: 1)
         folioLog("restore: страница \(page + 1) из \(pageCount), прокрутка \(String(format: "%.0f", currentPageProgress * 100))%, зум \(String(format: "%.2f", zoom))")
+        folioLog("restore: применяю позицию — стр. \(page + 1), доля \(String(format: "%.2f", currentPageProgress)), зум \(String(format: "%.2f", zoom))")
         // Даём DetailView появиться, иначе onChange(scrollRequest) не сработает.
+        // После смены зума LazyVStack перестраивается, поэтому проверяем, что реально
+        // доехали до страницы, и при необходимости повторяем прокрутку.
         Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            guard let self else { return }
-            self.scrollTo(page: page, bbox: bbox)
-            self.updateVisiblePage(page, progress: position.progress)
+            for attempt in 0..<3 {
+                try? await Task.sleep(nanoseconds: attempt == 0 ? 200_000_000 : 450_000_000)
+                guard let self, self.documentURL != nil else { return }
+                self.scrollTo(page: page, bbox: bbox)
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                if self.currentPage == page {
+                    folioLog("restore: страница \(page + 1) на месте (попытка \(attempt + 1))")
+                    return
+                }
+                folioLog("restore: страница \(page + 1) не достигнута (видно \(self.currentPage + 1)), повтор \(attempt + 2)")
+            }
         }
     }
 
