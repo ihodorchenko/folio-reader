@@ -42,6 +42,17 @@ Prebuilt **Folio** for Apple Silicon: [latest release](https://github.com/ihodor
 The archive is a thin **arm64** build and needs **macOS 14+**. To build from source see
 [Quick start](#quick-start).
 
+### Automated builds and releases
+
+- Every green build on `main` uploads the signed `Folio.app.zip` plus its SHA-256 as a workflow
+  artifact (`Actions → CI → Artifacts`, kept for 14 days).
+- Pushing a tag `vX.Y.Z` runs [`.github/workflows/release.yml`](.github/workflows/release.yml): it
+  builds the bundle with the version taken from the tag, verifies the ad-hoc signature, the version
+  and the bundled localizations, and creates a **draft** GitHub release with `Folio.app.zip` and
+  `Folio.app.zip.sha256`. The notes are rendered from
+  [`.github/release-notes.md`](.github/release-notes.md) with the version, checksum, commit and CI
+  run filled in — adding the "What's new" section and publishing stay manual.
+
 ---
 
 ## What it does
@@ -446,6 +457,7 @@ cd core
 ├── scripts/                     download-pdfium, build-core, run-app, build-app,
 │                                make-icon, fetch-samples, accept-core, make-sample-ru
 ├── samples/                     sample-ru.pdf, no-text.pdf (+ attention.pdf fetched)
+├── .github/                     CI (build, tests, artifact) and release workflow + notes template
 ├── docs/                        screenshots and icon
 └── dist/                        built Folio.app (+ zip), not committed
 ```

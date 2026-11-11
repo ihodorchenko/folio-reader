@@ -8,7 +8,8 @@ TOOLCHAIN="$(cd "$ROOT/.." && pwd)/.toolchain"
 DIST="$ROOT/dist"
 APP="$DIST/Folio.app"
 ZIP="$DIST/Folio.app.zip"
-VERSION="${FOLIO_VERSION:-1.0}"
+# Version defaults to the Info.plist template; CI overrides it from the git tag.
+VERSION="${FOLIO_VERSION:-$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$ROOT/app/Bundle/Info.plist" 2>/dev/null || echo 1.0)}"
 BUILD_NUMBER="${FOLIO_BUILD:-1}"
 BUNDLE_ID="${FOLIO_BUNDLE_ID:-dev.folio.reader}"
 

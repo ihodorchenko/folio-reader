@@ -41,3 +41,26 @@ jobs:
         run: |
           cd app
           swift build
+
+      # Signed bundle for download/debugging on every green main build (PRs skip this).
+      - name: Build the app bundle
+        if: github.event_name != 'pull_request'
+        env:
+          FOLIO_BUILD: ${{ github.run_number }}
+        run: ./scripts/build-app.sh
+
+      - name: Checksum the bundle
+        if: github.event_name != 'pull_request'
+        run: |
+          shasum -a 256 dist/Folio.app.zip > dist/Folio.app.zip.sha256
+          cat dist/Folio.app.zip.sha256
+
+      - name: Upload the app bundle
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Folio-app-${{ github.run_number }}
+          path: |
+            dist/Folio.app.zip
+            dist/Folio.app.zip.sha256
+          retention-days: 14

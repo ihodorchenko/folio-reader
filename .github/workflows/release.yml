@@ -1,0 +1,82 @@
+name: Release
+
+# Pushing a tag like v1.1.0 builds the signed app bundle and creates a DRAFT GitHub release
+# with the zip and its SHA-256. Publishing stays a manual step after reviewing the notes.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  draft-release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            core/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('core/Cargo.lock') }}
+
+      - name: Resolve the version from the tag
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "FOLIO_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "FOLIO_BUILD=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          echo "Release $TAG → version $VERSION, build ${GITHUB_RUN_NUMBER}"
+
+      - name: Build the app bundle
+        run: ./scripts/build-app.sh
+
+      - name: Verify signature and bundle version
+        run: |
+          codesign --verify --deep --strict dist/Folio.app
+          ACTUAL=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" dist/Folio.app/Contents/Info.plist)
+          echo "bundle version: $ACTUAL (expected $VERSION)"
+          [ "$ACTUAL" = "$VERSION" ] || { echo "::error::bundle version mismatch"; exit 1; }
+          [ -d dist/Folio.app/Contents/Resources/ru.lproj ] || { echo "::error::ru.lproj missing"; exit 1; }
+
+      - name: Checksum and render the release notes
+        run: |
+          shasum -a 256 dist/Folio.app.zip > dist/Folio.app.zip.sha256
+          SHA=$(awk '{print $1}' dist/Folio.app.zip.sha256)
+          CI_RUN="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          sed -e "s|{{VERSION}}|$VERSION|g" \
+              -e "s|{{SHA256}}|$SHA|g" \
+              -e "s|{{COMMIT}}|${GITHUB_SHA}|g" \
+              -e "s|{{CI_RUN}}|$CI_RUN|g" \
+              .github/release-notes.md > dist/release-notes.md
+          echo "sha256: $SHA"
+          echo "notes: dist/release-notes.md"
+
+      - name: Create or update the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            STATE=$(gh release view "$TAG" --json isDraft --jq '.isDraft')
+            gh release upload "$TAG" dist/Folio.app.zip dist/Folio.app.zip.sha256 --clobber
+            if [ "$STATE" = "true" ]; then
+              gh release edit "$TAG" --draft --notes-file dist/release-notes.md --title "Folio $VERSION"
+            else
+              echo "release $TAG is already published — assets replaced, notes left untouched"
+            fi
+          else
+            gh release create "$TAG" \
+              dist/Folio.app.zip dist/Folio.app.zip.sha256 \
+              --draft --verify-tag \
+              --title "Folio $VERSION" \
+              --notes-file dist/release-notes.md
+          fi
+          gh release view "$TAG" --json tagName,isDraft,url,assets \
+            --jq '"draft=\(.isDraft) tag=\(.tagName) url=\(.url)"; .assets[] | "asset: \(.name) — \(.size) bytes"'
