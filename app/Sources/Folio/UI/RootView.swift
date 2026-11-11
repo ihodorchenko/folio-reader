@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// Корневое окно ридера: sidebar + страницы в стиле системного приложения.
+/// Root reader window: sidebar + pages in system-app style.
 struct RootView: View {
     let model: ReaderModel
 
@@ -19,8 +19,8 @@ struct RootView: View {
                 }
                 DetailView(model: model)
             }
-            // Системную кнопку панели убирает WindowChrome: `.toolbar(removing:)`
-            // на `NavigationSplitView` со своим toolbar не срабатывает.
+            // The system sidebar button is removed by WindowChrome: `.toolbar(removing:)`
+            // does not take effect on `NavigationSplitView` with a custom toolbar.
             .toolbar(removing: .sidebarToggle)
         }
         .navigationSplitViewStyle(.balanced)
@@ -45,15 +45,15 @@ struct RootView: View {
         }
         .onChange(of: displayScale) { _, scale in model.backingScale = scale }
         .onChange(of: model.columnVisibility) { _, _ in WindowChrome.suppressSoon() }
-        .alert("Не удалось открыть документ",
+        .alert(L10n.t("Could Not Open Document"),
                isPresented: Binding(get: { model.errorMessage != nil },
                                     set: { if !$0 { model.errorMessage = nil } })) {
-            Button("Закрыть", role: .cancel) { model.errorMessage = nil }
+            Button(L10n.t("Close"), role: .cancel) { model.errorMessage = nil }
         } message: {
             Text(model.errorMessage ?? "")
         }
-        // Хост системного перевода живёт всё время работы окна: сессию выдаёт SwiftUI,
-        // а запросы приходят из AppKit-меню (контекстное меню страницы).
+        // The system translation host lives for the whole lifetime of the window: SwiftUI
+        // provides the session, and requests come from the AppKit menu (the page context menu).
         .background(TranslationTaskHost(controller: model.translation))
         .sheet(isPresented: Binding(get: { model.translation.isPanelPresented },
                                     set: { model.translation.isPanelPresented = $0 })) {
@@ -65,27 +65,27 @@ struct RootView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        // Левая группа: единственная кнопка боковой панели, сразу за ней — название книги.
+        // Left group: the only sidebar button, immediately followed by the book title.
         ToolbarItem(placement: .navigation) {
             Button {
                 toggleSidebar()
             } label: {
                 Image(systemName: "sidebar.left")
             }
-            .help(model.columnVisibility == .detailOnly ? "Показать боковую панель (⧉)" : "Скрыть боковую панель (⧉)")
+            .help(model.columnVisibility == .detailOnly ? L10n.t("Show Sidebar (⧉)") : L10n.t("Hide Sidebar (⧉)"))
         }
 
         ToolbarItem(placement: .navigation) {
             titleView
         }
 
-        // Гибкая пружина в центре: без неё SwiftUI пакует правую группу сразу
-        // за заголовком, а не прижимает её к краю тулбара.
+        // Flexible spring in the center: without it SwiftUI packs the right group right
+        // after the title instead of pinning it to the toolbar edge.
         ToolbarItem(placement: .principal) {
             Spacer(minLength: 0)
         }
 
-        // Правая группа: прижата к крайнему правому углу тулбара.
+        // Right group: pinned to the far right corner of the toolbar.
         ToolbarItemGroup(placement: .primaryAction) {
             PageIndicatorField(model: model)
             zoomMenu
@@ -107,7 +107,7 @@ struct RootView: View {
                     .lineLimit(1)
             }
             if model.isMock {
-                Text("ДЕМО")
+                Text(L10n.t("DEMO"))
                     .font(.system(size: 9, weight: .bold))
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1.5)
@@ -117,16 +117,16 @@ struct RootView: View {
         }
         .frame(maxWidth: 420, alignment: .leading)
         .lineLimit(1)
-        .help("\(model.documentTitle) — \(model.statusText)")
+        .help(L10n.t("%@ — %@", model.documentTitle, model.statusText))
     }
 
     private var zoomMenu: some View {
         Menu {
-            Button("Увеличить") { model.zoomIn() }
-            Button("Уменьшить") { model.zoomOut() }
+            Button(L10n.t("Zoom In")) { model.zoomIn() }
+            Button(L10n.t("Zoom Out")) { model.zoomOut() }
             Divider()
-            Button("По размеру ширины") { model.applyFitWidth() }
-            Button("100%") { model.actualSize() }
+            Button(L10n.t("Fit Width")) { model.applyFitWidth() }
+            Button(L10n.t("100%")) { model.actualSize() }
         } label: {
             HStack(spacing: 3) {
                 Image(systemName: "plus.magnifyingglass")
@@ -136,7 +136,7 @@ struct RootView: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .help("Масштаб: пинч, ⌘+ / ⌘−, ⌘0 — по ширине, ⌘1 — 100%")
+        .help(L10n.t("Zoom: pinch, ⌘+ / ⌘−, ⌘0 — fit to width, ⌘1 — 100%"))
     }
 
     private var debugButton: some View {
@@ -147,7 +147,7 @@ struct RootView: View {
                 .symbolVariant(model.showDebugOverlay ? .fill : .none)
         }
         .foregroundStyle(model.showDebugOverlay ? Color.accentColor : Color.primary)
-        .help("Показать разметку блоков: тип, уровень заголовка, уверенность")
+        .help(L10n.t("Show element layout: kind, heading level, confidence"))
     }
 
     private var searchButton: some View {
@@ -156,26 +156,26 @@ struct RootView: View {
         } label: {
             Image(systemName: "magnifyingglass")
         }
-        .help("Поиск по документу (⌘F)")
+        .help(L10n.t("Search the document (⌘F)"))
     }
 
     private var moreMenu: some View {
         Menu {
-            Button("Открыть…") { model.presentOpenPanel() }
-            Menu("Открыть недавние") {
+            Button(L10n.t("Open…")) { model.presentOpenPanel() }
+            Menu(L10n.t("Open Recent")) {
                 let recent = RecentDocumentsStore.shared.documents
                 if recent.isEmpty {
-                    Text("Нет недавних документов")
+                    Text(L10n.t("No Recent Documents"))
                 } else {
                     ForEach(recent) { document in
                         Button(document.title) { model.open(url: document.url) }
                     }
                     Divider()
-                    Button("Очистить меню") { RecentDocumentsStore.shared.clear() }
+                    Button(L10n.t("Clear Menu")) { RecentDocumentsStore.shared.clear() }
                 }
             }
             Divider()
-            Button(model.translation.canRetry ? "Перевести выделение (повторить)" : "Перевести выделение") {
+            Button(model.translation.canRetry ? L10n.t("Translate Selection (Retry)") : L10n.t("Translate Selection")) {
                 if model.translation.canRetry {
                     model.translation.retry()
                 } else {
@@ -183,39 +183,39 @@ struct RootView: View {
                 }
             }
             .disabled((model.selection?.isEmpty ?? true) && !model.translation.canRetry)
-            Button(model.speech.isSpeaking ? "Остановить озвучку" : "Озвучить выделение") {
+            Button(model.speech.isSpeaking ? L10n.t("Stop Speaking") : L10n.t("Speak Selection")) {
                 model.speech.isSpeaking ? model.stopSpeaking() : model.speakSelection()
             }
             .disabled(!model.settings.speechEnabled)
             Divider()
-            Button("Экспорт структуры → JSON…") { model.exportStructureJSON() }
+            Button(L10n.t("Export Structure → JSON…")) { model.exportStructureJSON() }
                 .disabled(model.structure == nil)
             Divider()
-            Toggle("Разметка блоков", isOn: Binding(get: { model.debugMode == .blocks },
-                                                   set: { model.setDebugMode($0 ? .blocks : .off) }))
-            Toggle("Рамки слов", isOn: Binding(get: { model.debugMode == .words },
-                                               set: { model.setDebugMode($0 ? .words : .off) }))
+            Toggle(L10n.t("Element Layout"), isOn: Binding(get: { model.debugMode == .blocks },
+                                                         set: { model.setDebugMode($0 ? .blocks : .off) }))
+            Toggle(L10n.t("Word Boxes"), isOn: Binding(get: { model.debugMode == .words },
+                                                      set: { model.setDebugMode($0 ? .words : .off) }))
             Divider()
-            Button("Фактический размер (100%)") { model.actualSize() }
-            Button("По размеру ширины") { model.applyFitWidth() }
+            Button(L10n.t("Actual Size (100%)")) { model.actualSize() }
+            Button(L10n.t("Fit Width")) { model.applyFitWidth() }
             Divider()
-            Button("Настройки…") { model.presentSettings() }
+            Button(L10n.t("Settings…")) { model.presentSettings() }
                 .keyboardShortcut(",", modifiers: .command)
         } label: {
             Image(systemName: "ellipsis.circle")
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .help("Дополнительно")
+        .help(L10n.t("More"))
     }
 
-    // MARK: - Действия
+    // MARK: - Actions
 
     private func toggleSidebar() {
         withAnimation(.easeInOut(duration: 0.22)) {
             model.columnVisibility = (model.columnVisibility == .detailOnly) ? .all : .detailOnly
         }
-        // SwiftUI пересобирает тулбар после смены видимости — чистим системную кнопку ещё раз.
+        // SwiftUI rebuilds the toolbar after visibility changes — clean up the system button once more.
         WindowChrome.suppressSoon()
     }
 
@@ -225,7 +225,7 @@ struct RootView: View {
         _ = provider.loadObject(ofClass: URL.self) { url, _ in
             guard let url else { return }
             Task { @MainActor in
-                folioLog("drop: открываю \(url.path)")
+                folioLog("drop: opening \(url.path)")
                 model.open(url: url)
             }
         }
@@ -233,7 +233,7 @@ struct RootView: View {
     }
 }
 
-// MARK: - Поле «страница / всего»
+// MARK: - "page / total" field
 
 private struct PageIndicatorField: View {
     let model: ReaderModel
@@ -258,7 +258,7 @@ private struct PageIndicatorField: View {
         .padding(.vertical, 3)
         .background(Color(nsColor: .textBackgroundColor).opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.black.opacity(0.10)))
-        .help("Номер страницы — введите число и нажмите Return")
+        .help(L10n.t("Page number — type a number and press Return"))
         .onAppear { syncText() }
         .onChange(of: model.currentPage) { _, _ in syncText() }
         .onChange(of: model.pageCount) { _, _ in syncText() }
@@ -278,7 +278,7 @@ private struct PageIndicatorField: View {
             return
         }
         let target = min(max(number - 1, 0), max(model.pageCount - 1, 0))
-        folioLog("toolbar: переход на страницу \(target + 1)")
+        folioLog("toolbar: go to page \(target + 1)")
         model.goToPage(target)
         model.updateVisiblePage(target)
         text = String(target + 1)
@@ -286,7 +286,7 @@ private struct PageIndicatorField: View {
     }
 }
 
-// MARK: - Баннер «ядро не собрано»
+// MARK: - "core not built" banner
 
 private struct MockCoreBanner: View {
     var body: some View {
@@ -295,9 +295,9 @@ private struct MockCoreBanner: View {
                 .foregroundStyle(.orange)
                 .font(.system(size: 13))
             VStack(alignment: .leading, spacing: 1) {
-                Text("Ядро pdfcore не собрано — показан демонстрационный документ")
+                Text(L10n.t("The pdfcore core is not built — showing a demo document"))
                     .font(.system(size: 11, weight: .medium))
-                Text("Соберите ядро: pdfreader/scripts/build-core.sh — затем откройте PDF заново (⌘O).")
+                Text(L10n.t("Build the core: pdfreader/scripts/build-core.sh — then reopen the PDF (⌘O)."))
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }

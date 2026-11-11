@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// Вкладка «Страницы»: миниатюры с ленивой подгрузкой.
+/// "Pages" tab: thumbnails with lazy loading.
 struct ThumbnailsSidebarView: View {
     let model: ReaderModel
 
@@ -10,7 +10,7 @@ struct ThumbnailsSidebarView: View {
     var body: some View {
         Group {
             if model.pageCount == 0 {
-                ProgressView("Загрузка страниц…")
+                ProgressView(L10n.t("Loading pages…"))
                     .controlSize(.small)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -68,15 +68,15 @@ private struct ThumbnailCell: View {
         }
         .contentShape(Rectangle())
         .onTapGesture {
-            folioLog("sidebar: переход к странице \(page + 1) из миниатюр")
+            folioLog("sidebar: jump to page \(page + 1) from thumbnails")
             model.scrollTo(page: page, bbox: nil)
         }
-        .help("Страница \(page + 1)")
+        .help(L10n.t("Page %ld", page + 1))
         .task(id: model.docIdentity + ":thumb:" + String(page)) {
             loadThumbnail()
         }
         .onChange(of: model.currentPage) { _, _ in
-            // миниатюры не перерисовываем, обновляется только индикатор
+            // Do not redraw thumbnails; only the indicator updates.
         }
     }
 
@@ -93,7 +93,7 @@ private struct ThumbnailCell: View {
         let immediate = RenderStore.shared.image(page: page, scale: scale, provider: doc, prefix: prefix) { rendered in
             if let rendered { image = rendered }
         }
-        // Синхронный режим (снапшот) отдаёт готовую миниатюру сразу.
+        // Synchronous mode (snapshot) returns the ready thumbnail immediately.
         if let immediate { image = immediate }
     }
 }

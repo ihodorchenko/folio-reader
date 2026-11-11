@@ -1,7 +1,7 @@
-//! Folio PDF core (`pdfcore`): PDFium-рендер + извлечение структуры страницы,
-//! классификация элементов и C ABI для macOS-приложения.
+//! Folio PDF core (`pdfcore`): PDFium rendering + page structure extraction,
+//! element classification and the C ABI for the macOS app.
 //!
-//! См. `pdfreader/CONTRACT.md` — единый источник правды.
+//! See `pdfreader/CONTRACT.md` — the single source of truth.
 
 pub mod api;
 pub mod classify;

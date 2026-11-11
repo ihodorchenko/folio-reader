@@ -1,15 +1,15 @@
 import SwiftUI
 import AppKit
 
-// MARK: - Точка входа
+// MARK: - Entry point
 
 @main
 struct FolioApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        // Окно = книга. Значение `URL?` приходит из Finder/`open` при открытии файла,
-        // поэтому у каждого окна своя `ReaderModel` и свой документ.
+        // Window = book. The `URL?` value comes from Finder/`open` when a file is
+        // opened, so every window has its own `ReaderModel` and its own document.
         WindowGroup("Folio", id: ReaderScene.windowGroupID, for: URL.self) { $documentURL in
             ReaderScene(documentURL: documentURL)
         }
@@ -19,7 +19,7 @@ struct FolioApp: App {
     }
 }
 
-// MARK: - Делегат приложения
+// MARK: - Application delegate
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var eventMonitors: [Any?] = []
@@ -30,11 +30,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        WindowReport.event("didFinishLaunching, окон=\(NSApp.windows.count)")
+        WindowReport.event("didFinishLaunching, windows=\(NSApp.windows.count)")
         if SnapshotRunner.isSnapshotMode {
-            // ВАЖНО: запускать через Timer, а не DispatchQueue.main.async.
-            // Внутри блока main-queue вложенный RunLoop не может разбудить
-            // Swift Concurrency (main queue занят), и модель не загрузится.
+            // IMPORTANT: start via Timer, not DispatchQueue.main.async.
+            // Inside a main-queue block a nested RunLoop cannot wake
+            // Swift Concurrency (the main queue is busy), and the model never loads.
             Timer.scheduledTimer(withTimeInterval: 0.05, repeats: false) { _ in
                 MainActor.assumeIsolated {
                     SnapshotRunner.runAndExit()
@@ -51,36 +51,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    /// Окна восстанавливаем сами: последняя книга + место чтения. Системное
-    /// восстановление окон отключено — именно оно поднимало лишние окна при запуске.
+    /// We restore windows ourselves: the last book plus the reading position. System
+    /// window restoration is disabled — it was what raised extra windows at launch.
     func applicationShouldSaveApplicationState(_ application: NSApplication) -> Bool { false }
     func applicationShouldRestoreApplicationState(_ application: NSApplication) -> Bool { false }
 
-    /// Двойной клик по PDF в Finder / «Открыть с помощью → Folio».
-    /// Каждый файл открывается в своём окне; уже открытые книги не меняются.
+    /// Double-click a PDF in Finder / «Open With → Folio».
+    /// Every file opens in its own window; already open books are not changed.
     func application(_ application: NSApplication, open urls: [URL]) {
         guard !SnapshotRunner.isSnapshotMode else { return }
         let pdfs = urls.filter { $0.pathExtension.lowercased() == "pdf" }
-        WindowReport.event("open-событие: \(urls.map(\.lastPathComponent)), окон=\(NSApp.windows.count)")
+        WindowReport.event("open event: \(urls.map(\.lastPathComponent)), windows=\(NSApp.windows.count)")
         for url in (pdfs.isEmpty ? urls : pdfs) {
-            folioLog("launchservices: открываем \(url.path)")
+            folioLog("launchservices: opening \(url.path)")
             WindowRouter.shared.openDocument(url)
         }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        WindowReport.event("shouldHandleReopen hasVisibleWindows=\(flag) окон=\(NSApp.windows.count)")
+        WindowReport.event("shouldHandleReopen hasVisibleWindows=\(flag) windows=\(NSApp.windows.count)")
         return true
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationDidBecomeActive(_ notification: Notification) {
-        // SwiftUI может пересобрать главное меню — возвращаем наш делегат.
+        // SwiftUI may rebuild the main menu — put our delegate back.
         RecentDocumentsMenu.shared.refresh()
     }
 
-    /// Перед выходом сохраняем место чтения во всех окнах.
+    /// Persist the reading position in every window before quitting.
     func applicationWillTerminate(_ notification: Notification) {
         guard !SnapshotRunner.isSnapshotMode else { return }
         for model in ReaderModel.registry.allObjects {
@@ -88,12 +88,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// ⌘C / ⌘D над страницей: страница — не NSTextView, поэтому обрабатываем сами.
+    /// ⌘C / ⌘D over the page: the page is not an NSTextView, so we handle them ourselves.
     ///
-    /// Локальные мониторы событий вызываются на главном потоке, но их замыкания
-    /// не изолированы на MainActor. Событие передаём через `@unchecked Sendable`
-    /// обёртку (событие живёт только внутри вызова на главном потоке), а наружу
-    /// возвращаем `Bool` — «событие обработано», чтобы не тащить NSEvent через границу.
+    /// Local event monitors run on the main thread, but their closures are not
+    /// MainActor-isolated. We pass the event through an `@unchecked Sendable` wrapper
+    /// (the event only lives inside the main-thread call) and return a plain `Bool` —
+    /// «event handled» — so NSEvent never crosses the isolation boundary.
     private func installEventMonitors() {
         let copyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let box = MainThreadEvent(event)
@@ -108,13 +108,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         eventMonitors = [copyMonitor, dictionaryMonitor]
     }
 
-    /// ⌘C: страница — не NSTextView, поэтому копируем выделение сами.
-    /// Возвращает `true`, если событие обработано и системный Copy не нужен.
+    /// ⌘C: the page is not an NSTextView, so we copy the selection ourselves.
+    /// Returns `true` when the event is handled and the system Copy is not needed.
     @MainActor
     private static func handleCopyKey(_ event: NSEvent) -> Bool {
         guard isCommandKey(event, "c") else { return false }
         if let responder = NSApp.keyWindow?.firstResponder, responder is NSTextView {
-            return false // пусть системный Copy обработает поле ввода
+            return false // let the system Copy handle the text field
         }
         guard let model = ReaderModel.active,
               let selection = model.selection, !selection.isEmpty else { return false }
@@ -122,11 +122,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    /// ⌘D: словарь по выделению / под курсором в активном окне.
+    /// ⌘D: dictionary for the selection / under the cursor in the active window.
     @MainActor
     private static func handleDictionaryKey(_ event: NSEvent) -> Bool {
         guard isCommandKey(event, "d") else { return false }
-        // Удержание ⌘D не должно открывать словарь повторно.
+        // Holding ⌘D must not open the dictionary again.
         guard !event.isARepeat else { return true }
         guard let model = ReaderModel.active else { return false }
         model.performLookUp()
@@ -143,23 +143,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-/// Обёртка для передачи `NSEvent` через границу изоляции на главный актор.
-/// Безопасно: событие не покидает главный поток и используется только внутри вызова.
+/// Wrapper for passing `NSEvent` across the isolation boundary to the main actor.
+/// Safe: the event never leaves the main thread and is used only inside the call.
 private struct MainThreadEvent: @unchecked Sendable {
     let event: NSEvent
     init(_ event: NSEvent) { self.event = event }
 }
 
-// MARK: - Меню
+// MARK: - Menu
 
-/// Команды работают с моделью активного окна: у каждого окна своя книга.
+/// Commands operate on the active window's model: every window has its own book.
 struct AppCommands: Commands {
     @FocusedValue(\.readerModel) private var focusedModel: ReaderModel?
 
-    /// Модель активной сцены; до появления фокуса — модель активного окна.
+    /// The model of the focused scene; before focus appears, the active window's model.
     private var model: ReaderModel? { focusedModel ?? ReaderModel.active }
 
-    /// Системный перевод появился в macOS 15 — до этого пункты отключаем.
+    /// The system translation framework appeared in macOS 15 — disable the items before that.
     private var translationAvailable: Bool {
         if #available(macOS 15.0, *) { return true }
         return false
@@ -169,11 +169,11 @@ struct AppCommands: Commands {
         !(model?.selection?.isEmpty ?? true)
     }
 
-    /// Недавние документы: подменю всегда строится из актуального списка.
+    /// Recent documents: the submenu is always built from the current list.
     private var recents: RecentDocumentsStore { RecentDocumentsStore.shared }
 
-    /// Недавний документ открывается в текущем окне (как «Открыть…»);
-    /// если окна ещё нет — маршрутизатор создаст первое.
+    /// A recent document opens in the current window (like «Open…»);
+    /// if there is no window yet, the router creates the first one.
     private func openRecent(_ url: URL) {
         if let model {
             model.open(url: url)
@@ -184,84 +184,84 @@ struct AppCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button("Новое окно") { WindowRouter.shared.openNewWindow() }
+            Button(L10n.t("New Window")) { WindowRouter.shared.openNewWindow() }
                 .keyboardShortcut("n", modifiers: .command)
-            Button("Открыть…") { model?.presentOpenPanel() }
+            Button(L10n.t("Open…")) { model?.presentOpenPanel() }
                 .keyboardShortcut("o", modifiers: .command)
-            Menu("Открыть недавние") {
+            Menu(L10n.t("Open Recent")) {
                 if recents.documents.isEmpty {
-                    Text("Нет недавних документов")
+                    Text(L10n.t("No Recent Documents"))
                 } else {
                     ForEach(recents.documents) { document in
                         Button(document.title) { openRecent(document.url) }
                     }
                     Divider()
-                    Button("Очистить меню") { recents.clear() }
+                    Button(L10n.t("Clear Menu")) { recents.clear() }
                 }
             }
         }
 
         CommandGroup(replacing: .appSettings) {
-            Button("Настройки…") { model?.presentSettings() ?? SettingsWindow.shared.show() }
+            Button(L10n.t("Settings…")) { model?.presentSettings() ?? SettingsWindow.shared.show() }
                 .keyboardShortcut(",", modifiers: .command)
         }
 
-        CommandMenu("Вид") {
-            Button("Увеличить") { model?.zoomIn() }
+        CommandMenu(L10n.t("View")) {
+            Button(L10n.t("Zoom In")) { model?.zoomIn() }
                 .keyboardShortcut("+", modifiers: .command)
-            Button("Уменьшить") { model?.zoomOut() }
+            Button(L10n.t("Zoom Out")) { model?.zoomOut() }
                 .keyboardShortcut("-", modifiers: .command)
-            Button("Фактический размер (100%)") { model?.actualSize() }
+            Button(L10n.t("Actual Size (100%)")) { model?.actualSize() }
                 .keyboardShortcut("1", modifiers: .command)
-            Button("По размеру ширины") { model?.toggleFitWidth() }
+            Button(L10n.t("Fit Width")) { model?.toggleFitWidth() }
                 .keyboardShortcut("0", modifiers: .command)
             Divider()
-            Button(model?.debugMode == .blocks ? "Скрыть разметку блоков" : "Разметка блоков") {
+            Button(model?.debugMode == .blocks ? L10n.t("Hide Element Layout") : L10n.t("Element Layout")) {
                 guard let model else { return }
                 model.setDebugMode(model.debugMode == .blocks ? .off : .blocks)
             }
             .keyboardShortcut("d", modifiers: [.command, .shift])
-            Button(model?.debugMode == .words ? "Скрыть рамки слов" : "Рамки слов") {
+            Button(model?.debugMode == .words ? L10n.t("Hide Word Boxes") : L10n.t("Word Boxes")) {
                 guard let model else { return }
                 model.setDebugMode(model.debugMode == .words ? .off : .words)
             }
             .keyboardShortcut("w", modifiers: [.command, .shift])
-            Button("Экспорт структуры → JSON…") { model?.exportStructureJSON() }
+            Button(L10n.t("Export Structure → JSON…")) { model?.exportStructureJSON() }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
                 .disabled(model?.structure == nil)
         }
 
-        CommandMenu("Страница") {
-            Button("Следующая страница") { model?.nextPage() }
+        CommandMenu(L10n.t("Page")) {
+            Button(L10n.t("Next Page")) { model?.nextPage() }
                 .keyboardShortcut(.downArrow, modifiers: .command)
-            Button("Предыдущая страница") { model?.previousPage() }
+            Button(L10n.t("Previous Page")) { model?.previousPage() }
                 .keyboardShortcut(.upArrow, modifiers: .command)
             Divider()
-            Button("Найти…") { model?.focusSearch() }
+            Button(L10n.t("Find…")) { model?.focusSearch() }
                 .keyboardShortcut("f", modifiers: .command)
         }
 
-        CommandMenu("Словарь") {
-            Button("Найти в словаре") { model?.performLookUp() }
+        CommandMenu(L10n.t("Dictionary")) {
+            Button(L10n.t("Look Up in Dictionary")) { model?.performLookUp() }
                 .keyboardShortcut("d", modifiers: .command)
-            Button("Копировать текст выделения") { _ = model?.copySelection() }
+            Button(L10n.t("Copy Selection Text")) { _ = model?.copySelection() }
                 .keyboardShortcut("c", modifiers: [.command, .shift])
                 .disabled(!hasSelection)
         }
 
-        CommandMenu("Перевод") {
-            Button("Перевести выделение…") { model?.translateSelection() }
+        CommandMenu(L10n.t("Translation")) {
+            Button(L10n.t("Translate Selection…")) { model?.translateSelection() }
                 .keyboardShortcut("t", modifiers: [.command, .option])
                 .disabled(!hasSelection || !translationAvailable)
-            Button("Повторить перевод") { model?.translation.retry() }
+            Button(L10n.t("Translate Again")) { model?.translation.retry() }
                 .disabled(!(model?.translation.canRetry ?? false) || !translationAvailable)
             Divider()
-            Button("Настройки перевода…") { model?.presentSettings() ?? SettingsWindow.shared.show() }
+            Button(L10n.t("Translation Settings…")) { model?.presentSettings() ?? SettingsWindow.shared.show() }
                 .keyboardShortcut(",", modifiers: [.command, .option])
         }
 
-        CommandMenu("Озвучка") {
-            Button((model?.speech.isSpeaking ?? false) ? "Остановить озвучку" : "Озвучить выделение") {
+        CommandMenu(L10n.t("Speech")) {
+            Button((model?.speech.isSpeaking ?? false) ? L10n.t("Stop Speaking") : L10n.t("Speak Selection")) {
                 guard let model else { return }
                 if model.speech.isSpeaking {
                     model.stopSpeaking()
@@ -272,7 +272,7 @@ struct AppCommands: Commands {
             .keyboardShortcut(.escape, modifiers: .option)
             .disabled(!hasSelection && !(model?.speech.isSpeaking ?? false))
             Divider()
-            Button("Настройки озвучки…") { model?.presentSettings() ?? SettingsWindow.shared.show() }
+            Button(L10n.t("Speech Settings…")) { model?.presentSettings() ?? SettingsWindow.shared.show() }
         }
     }
 }

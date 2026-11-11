@@ -1,8 +1,8 @@
 import Foundation
 
-/// Единая точка логов UI-слоя.
-/// В приёмке важно видеть, что путь «сильное нажатие → словарь» реально вызывается,
-/// поэтому все ключевые события пишутся через NSLog (видны в Console/stderr).
+/// Single logging entry point for the UI layer.
+/// Acceptance runs need to see that the "force click → dictionary" path really fires,
+/// so all key events go through NSLog (visible in Console/stderr).
 func folioLog(_ message: @autoclosure () -> String) {
     NSLog("%@", "[Folio] \(message())" as NSString)
 }

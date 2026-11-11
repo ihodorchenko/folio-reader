@@ -1,32 +1,32 @@
 import Foundation
 import Observation
 
-/// Один документ в списке недавних.
+/// One document in the recents list.
 struct RecentDocument: Identifiable, Hashable, Sendable {
     let url: URL
-    /// Подпись для меню: имя файла, а при совпадении имён — с папкой.
+    /// Menu title: the file name, plus the folder when names collide.
     let title: String
-    /// Родительская папка — для подсказки и различения одноимённых файлов.
+    /// Parent folder — for the tooltip and to tell same-named files apart.
     let folder: String
 
     var id: String { url.standardizedFileURL.path }
 }
 
 extension Notification.Name {
-    /// Список недавних документов изменился (для подменю «Открыть недавние»).
+    /// The recents list changed (for the "Open Recent" submenu).
     static let recentDocumentsChanged = Notification.Name("Folio.recentDocumentsChanged")
 }
 
-/// Список недавно открытых документов (MRU) в `UserDefaults`.
+/// Most-recently-used document list (MRU) in `UserDefaults`.
 ///
-/// Используется меню «Файл → Открыть недавние» и пустым состоянием ридера.
-/// Файлы, которых больше нет на диске, из меню скрываются.
+/// Used by the "File → Open Recent" menu and by the reader's empty state.
+/// Files that no longer exist on disk are hidden from the menu.
 @Observable
 @MainActor
 final class RecentDocumentsStore {
     static let shared = RecentDocumentsStore()
 
-    /// Сколько документов показывать в меню.
+    /// How many documents to show in the menu.
     static let limit = 12
     private static let key = "Folio.recentDocuments"
 
@@ -39,9 +39,9 @@ final class RecentDocumentsStore {
         reload()
     }
 
-    // MARK: - Изменения
+    // MARK: - Changes
 
-    /// Запомнить открытый документ: он становится первым в списке.
+    /// Remember an opened document: it becomes the first in the list.
     func note(_ url: URL) {
         guard url.isFileURL else { return }
         let path = url.standardizedFileURL.path
@@ -50,7 +50,7 @@ final class RecentDocumentsStore {
         if paths.count > Self.limit { paths = Array(paths.prefix(Self.limit)) }
         defaults.set(paths, forKey: Self.key)
         reload()
-        folioLog("recent: «\(url.lastPathComponent)», всего \(documents.count)")
+        folioLog("recent: \"\(url.lastPathComponent)\", total \(documents.count)")
     }
 
     func forget(_ url: URL) {
@@ -62,11 +62,11 @@ final class RecentDocumentsStore {
     func clear() {
         defaults.removeObject(forKey: Self.key)
         documents = []
-        folioLog("recent: список очищен")
+        folioLog("recent: list cleared")
         NotificationCenter.default.post(name: .recentDocumentsChanged, object: nil)
     }
 
-    /// Перечитать список: отбросить удалённые файлы и заодно нормализовать имена.
+    /// Re-read the list: drop deleted files and normalize the titles while at it.
     func reload() {
         let existing = storedPaths().filter { FileManager.default.fileExists(atPath: $0) }
         if existing != storedPaths() {
@@ -84,7 +84,7 @@ final class RecentDocumentsStore {
         NotificationCenter.default.post(name: .recentDocumentsChanged, object: nil)
     }
 
-    // MARK: - Внутреннее
+    // MARK: - Internals
 
     private func storedPaths() -> [String] {
         (defaults.array(forKey: Self.key) as? [String]) ?? []

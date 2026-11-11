@@ -1,15 +1,15 @@
-//! Извлечение символов страницы через PDFium и группировка:
-//! символы → слова → строки → блоки.
+//! Page character extraction via PDFium and grouping:
+//! characters → words → lines → blocks.
 //!
-//! Координаты — точки PDF, origin top-left, y вниз, с учётом /Rotate
-//! (CONTRACT §2). Символы внутри страницы живут в PDF user space (origin
-//! снизу-слева), здесь они сразу переводятся в отображаемую ориентацию.
+//! Coordinates are PDF points, origin top-left, y down, taking /Rotate
+//! into account (CONTRACT §2). Characters inside a page live in PDF user space (origin
+//! bottom-left); here they are immediately converted to display orientation.
 
 use crate::ffi::*;
 use crate::json_types::*;
 use std::collections::HashMap;
 
-/// Символ страницы в отображаемых координатах (top-left origin).
+/// A page character in display coordinates (top-left origin).
 #[derive(Clone, Debug)]
 pub struct RawChar {
     pub ch: char,
@@ -23,16 +23,16 @@ pub struct RawChar {
     pub math: bool,
     pub font: String,
     pub generated: bool,
-    /// Масштаб эффективной char-матрицы PDFium (hypot(a,b)); отладочная инфа.
+    /// Scale of the effective PDFium char matrix (hypot(a,b)); debug info.
     pub matrix_scale: f64,
-    /// Текст нарисован с отрицательным d в матрице (вертикально отражён).
+    /// The text is drawn with a negative d in the matrix (vertically mirrored).
     pub matrix_flip: bool,
-    /// Граница слова «после этого символа» из генерированных PDFium пробелов
-    /// (их позиция в char-box ненадёжна, а порядок в потоке — надёжен).
+    /// Word boundary "after this character" from PDFium-generated spaces
+    /// (their position in the char box is unreliable, but the stream order is reliable).
     pub break_after: bool,
 }
 
-/// Строка + внутренние признаки для классификатора.
+/// A line + internal features for the classifier.
 #[derive(Clone, Debug)]
 pub struct RawLine {
     pub page: i32,
@@ -70,8 +70,8 @@ impl RawLine {
     }
 }
 
-/// Сырые данные страницы до документной классификации (после нормировки
-/// размеров шрифта — см. [`estimate_size_scale`]).
+/// Raw page data before document-level classification (after font-size
+/// normalization — see [`estimate_size_scale`]).
 #[derive(Clone, Debug)]
 pub struct PageRaw {
     pub index: i32,
@@ -81,7 +81,7 @@ pub struct PageRaw {
     pub body_font_size: f64,
     pub lines: Vec<RawLine>,
     pub tagged: bool,
-    /// Заголовочные теги (/H, /H1../H6) из structure tree в порядке обхода.
+    /// Heading tags (/H, /H1../H6) from the structure tree in traversal order.
     pub tag_headings: Vec<i32>,
 }
 
@@ -153,10 +153,10 @@ pub fn style_from(name: &str, flags: i32, weight: i32) -> FontStyle {
 }
 
 // ---------------------------------------------------------------------------
-// Геометрия / rotation
+// Geometry / rotation
 // ---------------------------------------------------------------------------
 
-/// Точка из unrotated PDF-пространства (origin top-left, y вниз) в отображаемое.
+/// A point from unrotated PDF space (origin top-left, y down) to display space.
 pub fn rotate_point(x: f64, y: f64, rotation: i32, raw_w: f64, raw_h: f64) -> (f64, f64) {
     match rotation.rem_euclid(4) {
         1 => (raw_h - y, x),
@@ -166,7 +166,7 @@ pub fn rotate_point(x: f64, y: f64, rotation: i32, raw_w: f64, raw_h: f64) -> (f
     }
 }
 
-/// Прямоугольник в отображаемую ориентацию (поворот вокруг центра листа).
+/// Rectangle into display orientation (rotation around the sheet center).
 pub fn rotate_rect(r: Rect, rotation: i32, raw_w: f64, raw_h: f64) -> Rect {
     match rotation.rem_euclid(4) {
         1 => Rect::new(raw_h - r.y - r.h, r.x, r.h, r.w),
@@ -193,7 +193,7 @@ fn median(mut v: Vec<f64>) -> f64 {
     }
 }
 
-/// Наиболее частый размер (мода), взвешенно по числу символов.
+/// Most frequent size (mode), weighted by character count.
 pub fn mode_size(chars: &[RawChar]) -> f64 {
     let mut counts: HashMap<i32, usize> = HashMap::new();
     for c in chars {
@@ -208,9 +208,9 @@ pub fn mode_size(chars: &[RawChar]) -> f64 {
         .unwrap_or(0.0)
 }
 
-/// Вертикально отразить символы страницы (для PDF, нарисованных с
-/// отрицательным d в text matrix: Quartz/macOS print-to-PDF из flip-view).
-/// Координаты становятся «визуальными» (как в нормально свёрстанном листе).
+/// Vertically mirror page characters (for PDFs drawn with a
+/// negative d in the text matrix: Quartz/macOS print-to-PDF from a flipped view).
+/// The coordinates become "visual" (as on a normally laid-out sheet).
 pub fn flip_chars_y(chars: &mut [RawChar], page_h: f64) {
     if page_h <= 0.0 {
         return;
@@ -222,10 +222,10 @@ pub fn flip_chars_y(chars: &mut [RawChar], page_h: f64) {
     }
 }
 
-/// Определить, что текстовое содержимое нарисовано с вертикальным
-/// отражением (отрицательный `d` в char-матрице — Quartz/AppKit из flip-view).
-/// Смотрим знак `d` у большинства символов: это надёжнее, чем позиция первого
-/// символа, и не зависит от того, где на странице находится текст.
+/// Detect that the text content is drawn vertically mirrored
+/// (negative `d` in the char matrix — Quartz/AppKit from a flipped view).
+/// We look at the sign of `d` for most characters: this is more reliable than the
+/// position of the first character and does not depend on where the text is on the page.
 pub fn detect_y_flip_page(p: &Pdfium, page: FPDF_PAGE) -> bool {
     let geo = page_geometry(p, page);
     if geo.height <= 1.0 {
@@ -265,7 +265,7 @@ pub fn detect_y_flip_page(p: &Pdfium, page: FPDF_PAGE) -> bool {
     }
 }
 
-/// Вертикально отразить BGRA-буфер по строкам (для y-flipped документов).
+/// Vertically mirror a BGRA buffer by rows (for y-flipped documents).
 pub fn flip_rows_bgra(data: &mut [u8], width: i32, height: i32) {
     if width <= 0 || height <= 0 {
         return;
@@ -285,7 +285,7 @@ pub fn flip_rows_bgra(data: &mut [u8], width: i32, height: i32) {
 }
 
 // ---------------------------------------------------------------------------
-// Извлечение страницы
+// Page extraction
 // ---------------------------------------------------------------------------
 
 pub struct PageGeometry {
@@ -294,7 +294,7 @@ pub struct PageGeometry {
     pub height: f64,
     pub raw_w: f64,
     pub raw_h: f64,
-    /// PDF-space координаты левого/верхнего края (origin unrotated).
+    /// PDF-space coordinates of the left/top edge (unrotated origin).
     pub bx0: f64,
     pub by_top: f64,
 }
@@ -331,12 +331,12 @@ pub fn page_geometry(p: &Pdfium, page: FPDF_PAGE) -> PageGeometry {
     }
 }
 
-/// Сырые символы страницы без построчной группировки.
+/// Raw page characters without line grouping.
 ///
-/// `size` здесь — как его отдал PDFium (`FPDFText_GetFontSize`). Для части
-/// PDF (например, Quartz-экспорт с масштабом в text matrix) он равен 1.0 и
-/// не соответствует визуальному кеглю — тогда `estimate_size_scale` даёт
-/// поправочный коэффициент, а строки строятся уже по исправленным размерам.
+/// `size` here is what PDFium returned (`FPDFText_GetFontSize`). For some
+/// PDFs (e.g. Quartz exports with a scale in the text matrix) it is 1.0 and
+/// does not match the visual font size — then `estimate_size_scale` provides
+/// a correction factor, and lines are built from the corrected sizes.
 #[derive(Clone, Debug)]
 pub struct PageExtract {
     pub index: i32,
@@ -348,10 +348,10 @@ pub struct PageExtract {
     pub tag_headings: Vec<i32>,
 }
 
-/// Полное извлечение страницы в символы + structure tree.
+/// Full page extraction into characters + structure tree.
 ///
-/// Вызывать при загруженной `page`; сам загружает/закрывает text page и
-/// structure tree.
+/// Call with `page` loaded; it loads/closes the text page and
+/// the structure tree itself.
 pub fn extract_page_chars(p: &Pdfium, page: FPDF_PAGE, index: i32) -> Result<PageExtract, String> {
     let geo = page_geometry(p, page);
     let (tagged, tag_headings) = crate::structure::collect_struct_heading_tags(p, page);
@@ -415,8 +415,8 @@ pub unsafe fn extract_chars(p: &Pdfium, page: FPDF_PAGE, geo: &PageGeometry) -> 
         if !(size > 0.0) || !size.is_finite() {
             continue;
         }
-        // Эффективный кегль = кегль шрифта × масштаб char-матрицы: часть PDF
-        // (Quartz/macOS print-to-PDF) держит Tf=1, а размер задаёт Tm.
+        // Effective font size = font size × char-matrix scale: some PDFs
+        // (Quartz/macOS print-to-PDF) keep Tf=1 and set the size via Tm.
         let mut mat = FS_MATRIX::default();
         let mscale = if (p.FPDFText_GetMatrix)(text_page, i - consumed, &mut mat) != 0 {
             let vert = ((mat.c * mat.c + mat.d * mat.d) as f64).sqrt();
@@ -434,8 +434,8 @@ pub unsafe fn extract_chars(p: &Pdfium, page: FPDF_PAGE, geo: &PageGeometry) -> 
         if mscale.is_finite() && mscale > 0.01 {
             size *= mscale;
         }
-        // Повёрнутый на 90° текст (например, штамп arXiv на полях) ломает
-        // построчную группировку — пропускаем (angle — угол глифа в радианах).
+        // Text rotated by 90° (e.g. an arXiv stamp in the margins) breaks
+        // line grouping — skip it (angle is the glyph angle in radians).
         let angle = (p.FPDFText_GetCharAngle)(text_page, i - consumed);
         if angle.is_finite() && angle.abs() > 0.35 {
             continue;
@@ -469,13 +469,13 @@ pub unsafe fn extract_chars(p: &Pdfium, page: FPDF_PAGE, geo: &PageGeometry) -> 
         );
         let rect = rotate_rect(rect_un, geo.rotation, geo.raw_w, geo.raw_h);
 
-        // Пробелы оставляем даже с нулевой площадью: PDFium для пробела часто
-        // отдаёт пустой bbox, но он обязан разрывать слова. Прочий мусор
-        // (генерированные переводы строк) отбрасываем.
+        // Keep spaces even with zero area: PDFium often returns an empty bbox
+        // for a space, but it must still break words. Other junk
+        // (generated line breaks) is dropped.
         if !ws && rect.area() <= 0.0 {
             continue;
         }
-        // Символы вне cropbox не показываем.
+        // Do not show characters outside the cropbox.
         if rect.center_x() < -2.0
             || rect.center_x() > geo.width + 2.0
             || rect.center_y() < -2.0
@@ -512,8 +512,8 @@ pub unsafe fn extract_chars(p: &Pdfium, page: FPDF_PAGE, geo: &PageGeometry) -> 
         };
         let weight = (p.FPDFText_GetFontWeight)(text_page, i - consumed);
         let generated = (p.FPDFText_IsGenerated)(text_page, i - consumed) > 0;
-        // Генерированные пробелы/переводы строк — только маркер границы слова:
-        // их x-координата может совпадать/перекрываться с соседним глифом.
+        // Generated spaces/line breaks are only a word-boundary marker:
+        // their x-coordinate may coincide with or overlap the neighboring glyph.
         if generated && ws {
             generated_break = true;
             continue;
@@ -547,9 +547,9 @@ pub unsafe fn extract_chars(p: &Pdfium, page: FPDF_PAGE, geo: &PageGeometry) -> 
     out
 }
 
-/// Имя шрифта из `FPDFText_GetFontInfo`: по заголовку vendor-библиотеки буфер
-/// в UTF-8 (в старых сборках PDFium — UTF-16LE), поэтому определяем кодировку
-/// по нулевым старшим байтам.
+/// Font name from `FPDFText_GetFontInfo`: per the vendor library header the buffer
+/// is UTF-8 (in older PDFium builds — UTF-16LE), so we detect the encoding
+/// by the zero high bytes.
 fn decode_font_name(bytes: &[u8]) -> String {
     let nul = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
     let b = &bytes[..nul];
@@ -573,7 +573,7 @@ fn round_f(v: f64, digits: u32) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
-// Символы → строки
+// Characters → lines
 // ---------------------------------------------------------------------------
 
 pub fn build_lines(
@@ -609,8 +609,8 @@ pub fn build_lines(
         let mut j = i + 1;
         while j < sorted.len() {
             let c = &chars[sorted[j]];
-            // Допуск по baseline: надстрочные/подстрочные индексы (pnö) должны
-            // попадать в строку, но соседние строки — нет.
+            // Baseline tolerance: superscript/subscript (pnö) must
+            // fall into the line, but neighboring lines must not.
             let tol = (0.5 * row_size.min(14.0))
                 .max(0.45 * body_size.max(1.0))
                 .max(1.2);
@@ -621,8 +621,8 @@ pub fn build_lines(
                 break;
             }
         }
-        // Внутри ряда символы обязаны идти строго по x: при сортировке по
-        // baseline+x (для надстрочных индексов) порядок по x не монотонен.
+        // Within a row characters must go strictly by x: after sorting by
+        // baseline+x (for superscripts) the x order is not monotonic.
         let mut row: Vec<usize> = sorted[i..j].to_vec();
         row.sort_by(|&a, &b| {
             chars[a]
@@ -631,8 +631,8 @@ pub fn build_lines(
                 .partial_cmp(&chars[b].bbox.x)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-        // Разбиваем ряд на фрагменты по большим горизонтальным зазорам
-        // (две колонки / ячейки таблицы не должны склеиваться).
+        // Split the row into fragments at large horizontal gaps
+        // (two columns / table cells must not be glued together).
         let em = median(row.iter().map(|&k| chars[k].size).collect());
         let split_thresh = (1.7 * em).max(8.0);
         let mut frag: Vec<usize> = Vec::new();
@@ -656,7 +656,7 @@ pub fn build_lines(
         i = j;
     }
 
-    // Порядок чтения: полосы по y, внутри — по x (двухколоночная вёрстка).
+    // Reading order: bands by y, then by x within a band (two-column layout).
     let band = (0.5 * body_size).max(1.5);
     out.sort_by(|a, b| {
         let ka = (a.line.bbox.y / band).round() as i64;
@@ -699,7 +699,7 @@ fn build_line(
     let em = median(visible.iter().map(|&k| chars[k].size).collect());
     let em = if em > 0.0 { em } else { body_size.max(1.0) };
 
-    // Слова.
+    // Words.
     let mut words: Vec<Word> = Vec::new();
     let mut cur: Vec<usize> = Vec::new();
     let push_word = |cur: &mut Vec<usize>, words: &mut Vec<Word>| {
@@ -838,8 +838,8 @@ fn build_line(
     })
 }
 
-/// Нормализация текста для поиска повторов колонтитулов: нижний регистр,
-/// любые числа → `#`, пробелы схлопнуты.
+/// Text normalization for finding repeated headers/footers: lowercase,
+/// any numbers → `#`, whitespace collapsed.
 pub fn normalize_for_repeat(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut prev_space = false;
@@ -870,12 +870,12 @@ pub fn normalize_for_repeat(s: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Строки (уже классифицированные) → блоки
+// Lines (already classified) → blocks
 // ---------------------------------------------------------------------------
 
 use crate::classify::ClassifiedLine;
 
-/// Черновик блока: level/id назначаются позже на уровне документа.
+/// Block draft: level/id are assigned later at the document level.
 #[derive(Clone, Debug)]
 pub struct BlockDraft {
     pub kind: BlockKind,
@@ -885,9 +885,9 @@ pub struct BlockDraft {
     pub bbox: Rect,
     pub em: f64,
     pub is_title: bool,
-    /// 1..6 для heading, 0 для прочих; назначается на уровне документа.
+    /// 1..6 for headings, 0 for others; assigned at the document level.
     pub level: i32,
-    /// heuristic | tagged | outline (для heading).
+    /// heuristic | tagged | outline (for headings).
     pub source: String,
 }
 
@@ -909,7 +909,7 @@ fn starts_with_list_marker(word: &str) -> bool {
     match cs.next() {
         Some(c) if matches!(c, '•' | '◦' | '▪' | '●' | '–' | '-' | '*' | '·' | '—') => true,
         _ => {
-            // "1." "a)" "(1)" — маркер отдельным словом
+            // "1." "a)" "(1)" — the marker is a separate word
             let t: String = w.chars().filter(|c| c.is_ascii()).collect();
             if t.len() >= 2 && t.len() <= 4 {
                 let b = t.as_bytes();
@@ -933,10 +933,10 @@ fn style_close(a: &RawLine, b: &RawLine) -> bool {
         && (a.mono_ratio > 0.5) == (b.mono_ratio > 0.5)
 }
 
-/// Группировка классифицированных строк в блоки.
+/// Group classified lines into blocks.
 ///
-/// Строки одной колонки/абзаца склеиваются, заголовки не склеиваются с body,
-/// каждый маркированный пункт списка — отдельный блок.
+/// Lines of the same column/paragraph are glued together, headings are not glued to body,
+/// each bulleted list item is a separate block.
 pub fn group_blocks(lines: Vec<ClassifiedLine>, body_size: f64) -> Vec<BlockDraft> {
     let mut order: Vec<usize> = (0..lines.len()).collect();
     order.sort_by(|&a, &b| {
@@ -986,14 +986,14 @@ pub fn group_blocks(lines: Vec<ClassifiedLine>, body_size: f64) -> Vec<BlockDraf
             if !xdjacent(&d.bbox, &raw.line.bbox) {
                 continue;
             }
-            // Новый пункт списка — новый блок.
+            // A new list item is a new block.
             if d.kind == BlockKind::List
                 && starts_with_list_marker(raw.first_word())
                 && d.last_marker()
             {
                 continue;
             }
-            // Заголовок той же стилистики склеиваем только если очень близко.
+            // A heading of the same style is merged only if it is very close.
             if d.kind == BlockKind::Heading && gap > 0.8 * em {
                 continue;
             }
@@ -1060,10 +1060,10 @@ pub fn group_blocks(lines: Vec<ClassifiedLine>, body_size: f64) -> Vec<BlockDraf
         });
     }
 
-    // Одиночные символы-маркеры (сноски «∗», «† ‡») блоками не считаем.
+    // Single marker characters (footnotes «∗», «† ‡») are not counted as blocks.
     drafts.retain(|d| !is_trivial_marker_block(d));
 
-    // Порядок чтения блоков.
+    // Block reading order.
     let band = (0.5 * body_size).max(1.5);
     drafts.sort_by(|a, b| {
         let ka = (a.bbox.y / band).round() as i64;
@@ -1078,8 +1078,8 @@ pub fn group_blocks(lines: Vec<ClassifiedLine>, body_size: f64) -> Vec<BlockDraf
     drafts
 }
 
-/// Блок из <=2 символов, все из которых — маркеры/пунктуация (сноски), не
-/// является самостоятельным элементом.
+/// A block of <=2 characters, all of them markers/punctuation (footnotes), is
+/// not a standalone element.
 fn is_trivial_marker_block(d: &BlockDraft) -> bool {
     if d.kind != BlockKind::Formula && d.kind != BlockKind::Body {
         return false;
@@ -1101,8 +1101,8 @@ fn compatible_kind(d: &BlockDraft, cl: &ClassifiedLine) -> bool {
     if d.kind == cl.kind {
         return true;
     }
-    // body-строки, ошибочно помеченные quote/reference, не тянем в body-блок,
-    // но близкие к body — разрешаем (footnote под абзацем).
+    // body lines mistakenly marked quote/reference are not pulled into a body block,
+    // but those close to body are allowed (a footnote under a paragraph).
     false
 }
 
@@ -1114,14 +1114,14 @@ fn xdjacent(block: &Rect, line: &Rect) -> bool {
     if r >= 0.3 {
         return true;
     }
-    // короткая строка по центру/справа внутри блока
+    // a short line centered/right inside the block
     let cx = line.center_x();
     let bcx = block.center_x();
     let half = block.w.max(line.w) * 0.5;
     (cx - bcx).abs() < half && line.w < block.w * 1.2
 }
 
-/// Собрать текст блока из строк: нормализованные пробелы, склейка переносов.
+/// Assemble block text from lines: normalized spaces, hyphen joining.
 pub fn join_block_text(lines: &[RawLine]) -> String {
     let mut out = String::new();
     for (i, l) in lines.iter().enumerate() {
@@ -1149,7 +1149,7 @@ pub fn join_block_text(lines: &[RawLine]) -> String {
     out
 }
 
-/// Доминирующий шрифт блока (по числу символов слов).
+/// Dominant block font (by word character count).
 pub fn block_font(lines: &[RawLine]) -> Font {
     let mut counts: HashMap<String, (usize, f64, bool, bool)> = HashMap::new();
     for l in lines {
@@ -1210,7 +1210,7 @@ mod tests {
         }
     }
 
-    /// Символы по горизонтали: каждый шириной 0.55*size.
+    /// Horizontal characters: each 0.55*size wide.
     fn text_run(s: &str, x0: f64, y: f64, size: f64) -> Vec<RawChar> {
         let mut out = Vec::new();
         let mut x = x0;
@@ -1224,7 +1224,7 @@ mod tests {
 
     #[test]
     fn rotate_transforms_for_quarter_turns() {
-        // 90° по часовой: (x,y,w,h) → (rawH-y-h, x, h, w)
+        // 90° clockwise: (x,y,w,h) → (rawH-y-h, x, h, w)
         let r = rotate_rect(Rect::new(10.0, 20.0, 30.0, 5.0), 1, 600.0, 800.0);
         assert_eq!(r, Rect::new(800.0 - 20.0 - 5.0, 10.0, 5.0, 30.0));
         // 180°
@@ -1233,7 +1233,7 @@ mod tests {
         // 270°
         let r = rotate_rect(Rect::new(10.0, 20.0, 30.0, 5.0), 3, 600.0, 800.0);
         assert_eq!(r, Rect::new(20.0, 600.0 - 10.0 - 30.0, 5.0, 30.0));
-        // точка
+        // point
         let (x, y) = rotate_point(10.0, 20.0, 1, 600.0, 800.0);
         assert_eq!((x, y), (780.0, 10.0));
     }
@@ -1241,10 +1241,10 @@ mod tests {
     #[test]
     fn groups_words_across_spaces_and_gaps() {
         let mut chars = text_run("Hello world", 10.0, 10.0, 10.0);
-        // Второй абзац заметно ниже.
+        // The second paragraph is noticeably lower.
         chars.extend(text_run("Next line", 10.0, 40.0, 10.0));
         let lines = build_lines(&chars, 0, 612.0, 792.0, 10.0);
-        assert_eq!(lines.len(), 2, "две строки: {:?}", lines.iter().map(|l| l.text().to_string()).collect::<Vec<_>>());
+        assert_eq!(lines.len(), 2, "two lines: {:?}", lines.iter().map(|l| l.text().to_string()).collect::<Vec<_>>());
         assert_eq!(lines[0].line.text, "Hello world");
         assert_eq!(lines[0].line.words.len(), 2);
         assert_eq!(lines[1].line.text, "Next line");
@@ -1253,7 +1253,7 @@ mod tests {
 
     #[test]
     fn no_word_split_inside_word() {
-        // Кириллица без пробела — одно слово.
+        // Cyrillic without spaces is a single word.
         let chars = text_run("Привет", 100.0, 100.0, 11.0);
         let lines = build_lines(&chars, 0, 595.0, 842.0, 11.0);
         assert_eq!(lines.len(), 1);
@@ -1291,7 +1291,7 @@ mod tests {
 
     #[test]
     fn flips_bgra_rows() {
-        // 2x2, строка 0 — красная, строка 1 — синяя (BGRA).
+        // 2x2, row 0 is red, row 1 is blue (BGRA).
         let mut data = vec![
             0, 0, 255, 255, 0, 0, 255, 255, // top: red
             255, 0, 0, 255, 255, 0, 0, 255, // bottom: blue

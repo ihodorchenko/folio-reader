@@ -1,12 +1,12 @@
 import Foundation
 import CoreGraphics
 
-/// Плоское представление слов страницы в порядке чтения.
-/// Используется для hit-testing (hover / force click), drag-выделения и ⌘C.
+/// Flat, reading-order representation of a page's words.
+/// Used for hit-testing (hover / force click), drag selection and ⌘C.
 struct PageTextGeometry {
     struct WordRef {
         let word: PcWord
-        /// Глобальный (по странице) номер строки — нужен, чтобы склеивать выделение переносом строки.
+        /// Global (per page) line number — needed to join a selection across a line break.
         let lineID: Int
         let baselineY: Double
         let order: Int
@@ -37,8 +37,8 @@ struct PageTextGeometry {
 
     // MARK: - Hit-testing
 
-    /// Слово под точкой страницы. Сначала точное попадание в bbox,
-    /// затем — ближайшее слово в пределах допуска (для «провалов» между словами).
+    /// Word under a page point. An exact bbox hit comes first,
+    /// then the nearest word within the tolerance (for the gaps between words).
     func wordIndex(at point: CGPoint, tolerance: CGFloat = 0) -> Int? {
         for (index, ref) in words.enumerated() where ref.word.bbox.contains(point) {
             return index
@@ -54,7 +54,7 @@ struct PageTextGeometry {
         return best?.index
     }
 
-    /// Ближайшее слово без ограничения по расстоянию — последний шанс для ⌘D.
+    /// Nearest word with no distance limit — the last resort for ⌘D.
     func nearestWordIndex(to point: CGPoint) -> Int? {
         guard !words.isEmpty else { return nil }
         var best: (index: Int, distance: CGFloat) = (-1, .greatestFiniteMagnitude)
@@ -71,9 +71,9 @@ struct PageTextGeometry {
         return CGFloat((dx * dx + dy * dy).squareRoot())
     }
 
-    // MARK: - Выделение
+    // MARK: - Selection
 
-    /// Выделение слов в диапазоне порядка чтения (i...j, включительно).
+    /// Selects words in the reading-order range (i...j, inclusive).
     func selection(from i: Int, to j: Int) -> Selection {
         guard !words.isEmpty else { return .empty(page: page) }
         let lo = max(0, min(i, j))
@@ -104,7 +104,7 @@ struct PageTextGeometry {
         return words[index].word
     }
 
-    /// Объединённые прямоугольники по строкам — компактнее для отрисовки.
+    /// Rects merged per line — more compact for drawing.
     func lineRects(for selection: Selection) -> [PcRect] {
         guard !selection.rects.isEmpty else { return [] }
         var result: [PcRect] = []

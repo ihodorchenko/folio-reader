@@ -1,9 +1,9 @@
 import Foundation
 import CoreGraphics
 
-/// Демонстрационный документ для разработки UI без собранного ядра.
-/// Структура намеренно похожа на реальную: заголовки 1–3 уровней, абзацы,
-/// список, подпись к рисунку, колонтитул.
+/// Demo document for developing the UI without a built core.
+/// The structure deliberately resembles a real one: level 1–3 headings, paragraphs,
+/// a list, a figure caption, a running header.
 final class MockDocumentProvider: DocumentProviding, @unchecked Sendable {
     let url: URL
     let isMock = true
@@ -50,48 +50,48 @@ final class MockDocumentProvider: DocumentProviding, @unchecked Sendable {
 
         let pageSize = (w: 595.0, h: 842.0)
 
-        // --- страница 1 ---
+        // --- page 1 ---
         var blocks: [PcBlock] = []
         var y = 90.0
-        let title = block("p0b0", .heading, level: 1, [line("Основы работы с PDF", x: 64, y: y, size: 24, bold: true)],
+        let title = block("p0b0", .heading, level: 1, [line("Folio demo document (PDF)", x: 64, y: y, size: 24, bold: true)],
                           size: 24, bold: true, confidence: 0.99)
         blocks.append(title)
         headings.append(PcHeading(id: title.id, page: 0, level: 1, title: title.text, bbox: title.bbox, source: "heuristic"))
         y += 52
-        let chap = block("p0b1", .heading, level: 2, [line("Глава 1. Структура документа", x: 64, y: y, size: 15, bold: true)],
+        let chap = block("p0b1", .heading, level: 2, [line("Chapter 1. Document Structure", x: 64, y: y, size: 15, bold: true)],
                          size: 15, bold: true)
         blocks.append(chap)
         headings.append(PcHeading(id: chap.id, page: 0, level: 2, title: chap.text, bbox: chap.bbox, source: "heuristic"))
         y += 34
         for i in 0..<5 {
-            let text = "Это демонстрационный абзац номер \(i + 1). Он нужен для того, чтобы интерфейс "
-                + "выглядел как настоящий документ: здесь есть переносы строк, отступы и обычный "
-                + "кегль основного текста."
+            let text = "This is demo paragraph number \(i + 1). It exists so the interface "
+                + "looks like a real document: there are line breaks, indents and a regular "
+                + "body text size."
             let wrapped = Self.wrap(text, width: 78)
             let lines = wrapped.enumerated().map { idx, s in line(s, x: 64, y: y + Double(idx) * 16, size: bodySize) }
             blocks.append(block("p0b\(blocks.count)", .body, level: 0, lines, size: bodySize))
             y += Double(wrapped.count) * 16 + 10
         }
         blocks.append(block("p0b\(blocks.count)", .list, level: 0,
-                            [line("• Первый пункт списка", x: 72, y: y, size: bodySize),
-                             line("• Второй пункт списка", x: 72, y: y + 16, size: bodySize)], size: bodySize))
+                            [line("• First list item", x: 72, y: y, size: bodySize),
+                             line("• Second list item", x: 72, y: y + 16, size: bodySize)], size: bodySize))
         y += 46
         blocks.append(block("p0b\(blocks.count)", .caption, level: 0,
-                            [line("Рис. 1. Пример подписи к иллюстрации", x: 64, y: y, size: 9)], size: 9))
+                            [line("Fig. 1. Example figure caption", x: 64, y: y, size: 9)], size: 9))
         pages.append(PcPageLayout(index: 0, width: pageSize.w, height: pageSize.h, rotation: 0,
                                   bodyFontSize: bodySize, blocks: blocks))
 
-        // --- страница 2 ---
+        // --- page 2 ---
         blocks = []
         y = 90
-        let h22 = block("p1b0", .heading, level: 2, [line("1.1. Заголовки и уровни", x: 64, y: y, size: 15, bold: true)],
+        let h22 = block("p1b0", .heading, level: 2, [line("1.1. Headings and Levels", x: 64, y: y, size: 15, bold: true)],
                         size: 15, bold: true)
         blocks.append(h22)
         headings.append(PcHeading(id: h22.id, page: 1, level: 2, title: h22.text, bbox: h22.bbox, source: "heuristic"))
         y += 34
         for i in 0..<6 {
-            let text = "Заголовки определяются по размеру и насыщенности шрифта, а также по "
-                + "вертикальным отступам. Уровень \(i + 1) — это демонстрационная строка."
+            let text = "Headings are detected by font size and weight, as well as by "
+                + "vertical spacing. Level \(i + 1) is a demo line."
             let lines = Self.wrap(text, width: 78).enumerated().map { idx, s in
                 line(s, x: 64, y: y + Double(idx) * 16, size: bodySize)
             }
@@ -101,17 +101,17 @@ final class MockDocumentProvider: DocumentProviding, @unchecked Sendable {
         pages.append(PcPageLayout(index: 1, width: pageSize.w, height: pageSize.h, rotation: 0,
                                   bodyFontSize: bodySize, blocks: blocks))
 
-        // --- страница 3 ---
+        // --- page 3 ---
         blocks = []
         y = 90
-        let h23 = block("p2b0", .heading, level: 2, [line("1.2. Сильное нажатие и словарь", x: 64, y: y, size: 15, bold: true)],
+        let h23 = block("p2b0", .heading, level: 2, [line("1.2. Force Click and Dictionary", x: 64, y: y, size: 15, bold: true)],
                         size: 15, bold: true)
         blocks.append(h23)
         headings.append(PcHeading(id: h23.id, page: 2, level: 2, title: h23.text, bbox: h23.bbox, source: "heuristic"))
         y += 34
         for i in 0..<7 {
-            let text = "Нажмите сильно на слово «словарь» или любое другое слово, чтобы открыть "
-                + "системную панель определения. Это тот же механизм, что в Preview и Books. Строка \(i + 1)."
+            let text = "Force click a word like “dictionary” or any other word to open "
+                + "the system definition panel. It is the same mechanism as in Preview and Books. Line \(i + 1)."
             let lines = Self.wrap(text, width: 78).enumerated().map { idx, s in
                 line(s, x: 64, y: y + Double(idx) * 16, size: bodySize)
             }
@@ -121,11 +121,11 @@ final class MockDocumentProvider: DocumentProviding, @unchecked Sendable {
         pages.append(PcPageLayout(index: 2, width: pageSize.w, height: pageSize.h, rotation: 0,
                                   bodyFontSize: bodySize, blocks: blocks))
 
-        // --- страница 4 (без заголовков) ---
+        // --- page 4 (no headings) ---
         blocks = []
         y = 90
         for i in 0..<40 {
-            let lines = [line("Демонстрационная строка без разметки \(i + 1).", x: 64, y: y, size: bodySize)]
+            let lines = [line("Demo line without markup \(i + 1).", x: 64, y: y, size: bodySize)]
             blocks.append(block("p3b\(blocks.count)", .body, level: 0, lines, size: bodySize))
             y += 16
         }

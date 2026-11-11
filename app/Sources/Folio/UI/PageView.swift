@@ -1,8 +1,8 @@
 import SwiftUI
 import AppKit
 
-/// Мост SwiftUI → AppKit для одной страницы документа.
-/// NSView сам рисует растр и оверлей текста, SwiftUI только задаёт геометрию и состояние.
+/// SwiftUI → AppKit bridge for a single document page.
+/// The NSView draws the raster and the text overlay itself; SwiftUI only supplies geometry and state.
 struct PageView: NSViewRepresentable {
     let model: ReaderModel
     let pageIndex: Int

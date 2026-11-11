@@ -1,20 +1,20 @@
 import AppKit
 
-/// Приведение системного хрома окна к виду, который нужен ридеру.
+/// Normalizes the system window chrome to the look the reader needs.
 ///
-/// 1. SwiftUI сам добавляет в тулбар кнопку боковой панели
-///    (`com.apple.SwiftUI.navigationSplitView.toggleSidebar`). Модификатор
-///    `.toolbar(removing: .sidebarToggle)` при объявленном своём toolbar на
-///    `NavigationSplitView` не срабатывает (проверено дампом `NSToolbar.items`),
-///    поэтому системную кнопку убираем на уровне AppKit — иначе в тулбаре две
-///    кнопки панели: наша и системная.
+/// 1. SwiftUI adds its own sidebar-toggle button to the toolbar
+///    (`com.apple.SwiftUI.navigationSplitView.toggleSidebar`). The
+///    `.toolbar(removing: .sidebarToggle)` modifier does not take effect when a
+///    custom toolbar is declared on `NavigationSplitView` (verified by dumping
+///    `NSToolbar.items`), so the system button is removed at the AppKit level —
+///    otherwise the toolbar has two sidebar buttons: ours and the system one.
 @MainActor
 enum WindowChrome {
     private static let systemSidebarToggleIdentifier = "com.apple.SwiftUI.navigationSplitView.toggleSidebar"
     private static var observers: [NSObjectProtocol] = []
     private static var installed = false
 
-    /// Подписка на события, после которых SwiftUI может пересобрать тулбар.
+    /// Subscribes to the events after which SwiftUI may rebuild the toolbar.
     static func install() {
         guard !installed else { return }
         installed = true
@@ -35,8 +35,8 @@ enum WindowChrome {
         })
     }
 
-    /// Убирает кнопку сейчас и ещё раз на следующем тике runloop: SwiftUI
-    /// пересобирает тулбар после смены видимости панели.
+    /// Removes the button now and once more on the next runloop tick: SwiftUI
+    /// rebuilds the toolbar after the sidebar visibility changes.
     static func suppressSoon() {
         if let window = inKeyWindow() { suppress(in: window) }
         Task { @MainActor in
@@ -54,7 +54,7 @@ enum WindowChrome {
             removed += 1
         }
         if removed > 0 {
-            folioLog("toolbar: убрал системную кнопку боковой панели (\(removed) шт.)")
+            folioLog("toolbar: removed \(removed) system sidebar button(s)")
         }
     }
 

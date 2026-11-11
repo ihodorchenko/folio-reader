@@ -1,12 +1,12 @@
 import Foundation
 import CoreGraphics
 
-/// Кэш рендеров страниц и миниатюр.
+/// Cache of page and thumbnail renders.
 ///
-/// Рендер идёт на фоне (ядро потокобезопасно, см. CONTRACT.md §7), результат кладётся
-/// в `NSCache` с ключом «page + scale» и лимитом ~120 МБ. В снапшот-режиме
-/// (`synchronous == true`) рендер выполняется синхронно на вызывающем потоке, чтобы
-/// захваченный кадр гарантированно содержал изображения страниц.
+/// Rendering happens in the background (the core is thread-safe, see CONTRACT.md §7); the result
+/// goes into `NSCache` under a "page + scale" key with a ~120 MB limit. In snapshot mode
+/// (`synchronous == true`) rendering runs synchronously on the calling thread so the
+/// captured frame is guaranteed to contain page images.
 final class RenderStore: @unchecked Sendable {
     static let shared = RenderStore()
 
@@ -18,8 +18,8 @@ final class RenderStore: @unchecked Sendable {
     private let cache = NSCache<NSString, Box>()
     private let lock = NSLock()
     private var inflight = Set<String>()
-    /// Кто ждёт уже запущенный рендер. Раньше потребитель, попавший в «уже рисуется»,
-    /// получал nil без колбэка и оставался с белой страницей (гонка с prefetch).
+    /// Who is waiting for an already running render. Previously a consumer that hit "already drawing"
+    /// got nil with no callback and was left with a white page (a race with prefetch).
     private var waiters: [String: [Waiter]] = [:]
 
     private struct Waiter: @unchecked Sendable {
@@ -27,17 +27,17 @@ final class RenderStore: @unchecked Sendable {
     }
     private let queue = DispatchQueue(label: "folio.render", qos: .userInitiated, attributes: .concurrent)
 
-    /// Только для снапшот-режима: рендерить синхронно, без фоновой очереди.
+    /// Snapshot mode only: render synchronously, without the background queue.
     var synchronous = false
 
-    /// Диагностика для отладочного отчёта: сколько рендеров упало и почему.
+    /// Diagnostics for the debug report: how many renders failed and why.
     private(set) var errorCount = 0
     private(set) var lastError = "—"
 
     private func noteError(page: Int, scale: Double, error: Error?) {
         errorCount += 1
         lastError = String(format: "page=%d scale=%.2f: %@", page, scale, error.map { String(describing: $0) } ?? "nil")
-        folioLog("render: ОШИБКА \(lastError)")
+        folioLog("render: ERROR \(lastError)")
     }
 
     private init() {
@@ -65,7 +65,7 @@ final class RenderStore: @unchecked Sendable {
         let pending = waiters
         waiters.removeAll()
         lock.unlock()
-        // Не оставляем ожидающих без ответа: пусть перезапросят рендер.
+        // Never leave waiters without an answer: let them request the render again.
         if !pending.isEmpty {
             Task { @MainActor in
                 for group in pending.values {
@@ -75,8 +75,8 @@ final class RenderStore: @unchecked Sendable {
         }
     }
 
-    /// Возвращает изображение, если оно уже готово, иначе запускает фоновый рендер
-    /// и вызывает `completion` на главном акторе.
+    /// Returns the image if it is already ready; otherwise starts a background render
+    /// and calls `completion` on the main actor.
     @discardableResult
     func image(page: Int,
                scale: Double,
@@ -99,7 +99,7 @@ final class RenderStore: @unchecked Sendable {
 
         lock.lock()
         if inflight.contains(key) {
-            // Рендер уже идёт (например, его начал prefetch) — подписываемся на результат.
+            // A render is already running (started by prefetch, for example) — subscribe to the result.
             waiters[key, default: []].append(Waiter(notify: completion))
             lock.unlock()
             return nil
@@ -128,7 +128,7 @@ final class RenderStore: @unchecked Sendable {
         return nil
     }
 
-    /// Тёплая подгрузка соседних страниц (видимые ±2).
+    /// Warm up neighboring pages (visible ±2).
     func prefetch(page: Int, scale: Double, provider: any DocumentProviding, prefix: String = "page") {
         guard !synchronous else { return }
         let key = RenderStore.key(prefix, page, scale)

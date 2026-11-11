@@ -45,7 +45,7 @@ func draw(_ text: String, rect: CGRect, size: CGFloat, bold: Bool = false,
           mono: Bool = false, color: NSColor = NSColor(srgbRed: 0.06, green: 0.06, blue: 0.07, alpha: 1), align: NSTextAlignment = .left,
           lineSpacing: CGFloat = 2) {
     // Important: the system SF Pro font produces a broken ToUnicode mapping for Cyrillic when
-    // subsetted (к → ĸ). Explicit typefaces write a correct mapping.
+    // subsetted (the Cyrillic ka letter maps to ĸ). Explicit typefaces write a correct mapping.
     let font: NSFont
     if mono {
         font = NSFont(name: "Menlo", size: size) ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)

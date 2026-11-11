@@ -1,10 +1,10 @@
 import SwiftUI
 import AppKit
 
-/// Панель перевода выделенного фрагмента: исходник, перевод, пара языков, действия.
+/// Translation panel for the selected fragment: source, translation, language pair, actions.
 ///
-/// Панель не знает про `TranslationSession` — она лишь показывает состояние
-/// `TranslationController` и меняет настройки пары языков (они сохраняются в `UserDefaults`).
+/// The panel knows nothing about `TranslationSession` — it only shows the state of
+/// `TranslationController` and changes the language-pair settings (they are persisted in `UserDefaults`).
 struct TranslationPanel: View {
     let model: ReaderModel
 
@@ -39,14 +39,14 @@ struct TranslationPanel: View {
         .onChange(of: settings.translateTargetID) { _, _ in reflow() }
     }
 
-    // MARK: - Заголовок
+    // MARK: - Header
 
     private var header: some View {
         HStack(spacing: 10) {
             Image(systemName: "character.book.closed")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
-            Text("Перевод \(controller.requestOrigin)")
+            Text(L10n.t(controller.requestOrigin == "word" ? "Translation of Word" : "Translation of Selection"))
                 .font(.system(size: 13, weight: .semibold))
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
@@ -59,7 +59,7 @@ struct TranslationPanel: View {
             }
             .labelsHidden()
             .frame(width: 190)
-            .help("Язык оригинала (выбор сохраняется)")
+            .help(L10n.t("Source language (the choice is saved)"))
 
             Image(systemName: "arrow.right")
                 .font(.system(size: 10, weight: .semibold))
@@ -72,7 +72,7 @@ struct TranslationPanel: View {
             }
             .labelsHidden()
             .frame(width: 190)
-            .help("Язык перевода (выбор сохраняется)")
+            .help(L10n.t("Target language (the choice is saved)"))
 
             Button {
                 swapLanguages()
@@ -80,14 +80,14 @@ struct TranslationPanel: View {
                 Image(systemName: "arrow.left.arrow.right")
             }
             .buttonStyle(.borderless)
-            .help("Поменять языки местами")
+            .help(L10n.t("Swap languages"))
             .disabled(settings.translateSourceID.isEmpty)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 11)
     }
 
-    // MARK: - Исходник и результат
+    // MARK: - Source and result
 
     private var sourceSection: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -137,9 +137,9 @@ struct TranslationPanel: View {
             ProgressView()
                 .controlSize(.small)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Перевожу…")
+                Text(L10n.t("Translating…"))
                     .font(.system(size: 12, weight: .medium))
-                Text("Первый перевод пары языков может скачивать системные модели — это несколько минут.")
+                Text(L10n.t("The first translation of a language pair may download system models — this can take a few minutes."))
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
             }
@@ -166,7 +166,7 @@ struct TranslationPanel: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Button("Открыть настройки перевода") { model.presentSettings() }
+            Button(L10n.t("Translation Settings…")) { model.presentSettings() }
                 .controlSize(.small)
         }
         .padding(10)
@@ -174,47 +174,47 @@ struct TranslationPanel: View {
         .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 7))
     }
 
-    // MARK: - Подвал
+    // MARK: - Footer
 
     private var footer: some View {
         HStack(spacing: 10) {
             Button {
                 copyTranslation()
             } label: {
-                Label("Копировать", systemImage: "doc.on.doc")
+                Label(L10n.t("Copy"), systemImage: "doc.on.doc")
             }
             .disabled(controller.phase != .done)
 
             Button {
                 model.speech.speak(controller.translatedText, languageHint: controller.targetLanguageID)
             } label: {
-                Label("Озвучить", systemImage: "speaker.wave.2")
+                Label(L10n.t("Speak"), systemImage: "speaker.wave.2")
             }
             .disabled(controller.phase != .done || !settings.speechEnabled)
             .help(settings.speechEnabled
-                  ? "Прочитать перевод вслух"
-                  : "Озвучка выключена — включите её в настройках (⌘,)")
+                  ? L10n.t("Read the translation aloud")
+                  : L10n.t("Speech is off — enable it in Settings (⌘,)"))
 
             Spacer(minLength: 0)
 
-            Button("Перевести заново") { controller.retry() }
+            Button(L10n.t("Translate Again")) { controller.retry() }
                 .disabled(!controller.canRetry || controller.isWorking)
 
-            Button("Закрыть") { controller.isPanelPresented = false }
+            Button(L10n.t("Close")) { controller.isPanelPresented = false }
                 .keyboardShortcut(.cancelAction)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 11)
     }
 
-    // MARK: - Действия
+    // MARK: - Actions
 
     private func copyTranslation() {
         guard controller.phase == .done else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         let ok = pasteboard.setString(controller.translatedText, forType: .string)
-        folioLog("translate: перевод \(ok ? "скопирован" : "НЕ скопирован") (\(controller.translatedText.count) символов)")
+        folioLog("translate: translation \(ok ? "copied" : "not copied") (\(controller.translatedText.count) chars)")
     }
 
     private func swapLanguages() {
@@ -223,8 +223,8 @@ struct TranslationPanel: View {
         settings.translateTargetID = source
     }
 
-    /// Пользователь сменил пару языков — переводим тем же текстом.
-    /// Небольшая задержка склеивает два изменения (например, обмен языков местами) в один запрос.
+    /// The user changed the language pair — translate the same text again.
+    /// A short delay merges two changes (for example, swapping languages) into one request.
     private func reflow() {
         reflowTask?.cancel()
         let sourceID = settings.translateSourceID
@@ -233,10 +233,10 @@ struct TranslationPanel: View {
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard !Task.isCancelled, controller.canRetry else { return }
             guard controller.sourceLanguageID != sourceID || controller.targetLanguageID != targetID else {
-                folioLog("translate: пара не изменилась — повторный запрос не нужен")
+                folioLog("translate: pair unchanged — retry not needed")
                 return
             }
-            folioLog("translate: пара изменена → \(settings.translationPairTitle), перевожу заново")
+            folioLog("translate: pair changed → \(settings.translationPairTitle), translating again")
             controller.request(text: controller.sourceText,
                                sourceID: sourceID,
                                targetID: targetID,

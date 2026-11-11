@@ -292,9 +292,9 @@ def main():
         check("ru pageCount == 3", st.get("pageCount") == 3)
         ru_titles = [h.get("title", "") for h in st.get("headings", [])]
         ru_joined = " | ".join(ru_titles)
-        check("ru: title Структура PDF-документа", "Структура PDF-документа" in ru_joined, ru_joined[:200])
-        check("ru: Введение", "Введение" in ru_joined)
-        check("ru: Сильное нажатие", "Сильное нажатие" in ru_joined)
+        check("ru: title matches", "Структура PDF-документа" in ru_joined, ru_joined[:200])
+        check("ru: introduction heading", "Введение" in ru_joined)
+        check("ru: force click heading", "Сильное нажатие" in ru_joined)
         check("ru: no footer in headings", "демонстрационный документ" not in ru_joined and "из 3" not in ru_joined)
         sizes = {}
         for b in core.layout(doc, 0).get("blocks", []):
@@ -333,7 +333,7 @@ def main():
         levels = {h["title"]: h["level"] for h in st.get("headings", [])}
         vved = next((l for t, l in levels.items() if "Введение" in t), None)
         tip = next((l for t, l in levels.items() if "Типографические признаки" in t), None)
-        check("ru: Введение level 1", vved == 1, str(vved))
+        check("ru: introduction level 1", vved == 1, str(vved))
         check("ru: 1.1 level 2", tip == 2, str(tip))
         core.lib.pc_close(doc)
 

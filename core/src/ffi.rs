@@ -1,8 +1,8 @@
-//! Прямой FFI-слой над `libpdfium.dylib` (загружается через dlopen/libloading).
+//! Direct FFI layer over `libpdfium.dylib` (loaded via dlopen/libloading).
 //!
-//! Объявления строго по заголовкам `vendor/pdfium/fpdf*.h` (chrome/8152).
-//! Никаких сторонних обёрток: только нужные символы, загружаются один раз
-//! в статическую таблицу.
+//! Declarations follow the `vendor/pdfium/fpdf*.h` headers exactly (chrome/8152).
+//! No third-party wrappers: only the symbols we need, loaded once
+//! into a static table.
 
 #![allow(non_snake_case)]
 #![allow(non_camel_case_types)]
@@ -73,7 +73,7 @@ macro_rules! declare_symbols {
     ($($name:ident : $ty:ty),+ $(,)?) => {
         #[allow(non_snake_case)]
         pub struct Pdfium {
-            // Держим библиотеку живой: указатели на функции валидны, пока она загружена.
+            // Keep the library alive: the function pointers stay valid while it is loaded.
             _lib: libloading::Library,
             $(pub $name: $ty,)+
         }
@@ -85,7 +85,7 @@ macro_rules! declare_symbols {
                         let symbol = format!("{}\0", stringify!($name));
                         let sym = lib
                             .get::<$ty>(symbol.as_bytes())
-                            .map_err(|e| format!("символ {}: {}", stringify!($name), e))?;
+                            .map_err(|e| format!("symbol {}: {}", stringify!($name), e))?;
                         *sym
                     };
                 )+
@@ -156,11 +156,11 @@ declare_symbols! {
     FPDF_StructElement_GetChildAtIndex: unsafe extern "C" fn(FPDF_STRUCTELEMENT, c_int) -> FPDF_STRUCTELEMENT,
 }
 
-/// Глобальный мьютекс: PDFium не потокобезопасен (кроме рендера в один поток).
+/// Global mutex: PDFium is not thread-safe (except rendering in a single thread).
 pub static PDFIUM_LOCK: Mutex<()> = Mutex::new(());
 
 impl Pdfium {
-    /// UTF-16LE (с завершающим NUL, как отдаёт PDFium) → String.
+    /// UTF-16LE (NUL-terminated, as returned by PDFium) → String.
     pub fn utf16le(bytes: &[u8]) -> String {
         let mut units = Vec::with_capacity(bytes.len() / 2);
         let mut i = 0;
@@ -175,8 +175,8 @@ impl Pdfium {
         String::from_utf16_lossy(&units)
     }
 
-    /// Читает строковое свойство PDFium-объекта через двухфазный вызов
-    /// (сначала длина буфера, затем сам буфер). `call` получает (buf, len_bytes).
+    /// Reads a string property of a PDFium object via a two-phase call
+    /// (first the buffer length, then the buffer itself). `call` receives (buf, len_bytes).
     pub unsafe fn read_utf16(
         call: impl Fn(*mut c_void, c_ulong) -> c_ulong,
     ) -> String {
@@ -196,24 +196,24 @@ impl Pdfium {
     pub fn error_name(code: c_ulong) -> &'static str {
         match code {
             FPDF_ERR_SUCCESS => "OK",
-            FPDF_ERR_FILE => "файл не найден или не открывается",
-            FPDF_ERR_FORMAT => "файл повреждён или это не PDF",
-            FPDF_ERR_PASSWORD => "требуется пароль",
-            FPDF_ERR_SECURITY => "неподдерживаемая схема защиты",
-            FPDF_ERR_PAGE => "страница не найдена / ошибка содержимого",
-            _ => "неизвестная ошибка PDFium",
+            FPDF_ERR_FILE => "file not found or cannot be opened",
+            FPDF_ERR_FORMAT => "file is damaged or not a PDF",
+            FPDF_ERR_PASSWORD => "password required",
+            FPDF_ERR_SECURITY => "unsupported security scheme",
+            FPDF_ERR_PAGE => "page not found / content error",
+            _ => "unknown PDFium error",
         }
     }
 }
 
-/// Загруженная таблица + залоченный глобальный мьютекс.
+/// Loaded table + locked global mutex.
 pub fn pdfium_locked() -> Result<(&'static Pdfium, std::sync::MutexGuard<'static, ()>), String> {
     let lib = pdfium()?;
     let guard = PDFIUM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     Ok((lib, guard))
 }
 
-/// Доступ к загруженному PDFium (без блокировки). Обычно нужен `pdfium_locked`.
+/// Access to the loaded PDFium (without locking). Usually you want `pdfium_locked`.
 pub fn pdfium() -> Result<&'static Pdfium, String> {
     static CELL: OnceLock<Result<Pdfium, String>> = OnceLock::new();
     match CELL.get_or_init(load_pdfium) {
@@ -240,9 +240,9 @@ fn load_pdfium() -> Result<Pdfium, String> {
         }
     }
     Err(format!(
-        "libpdfium.dylib не найдена (env PDFIUM_DYLIB / рядом с libpdfcore / vendor/pdfium / FOLIO_ROOT). Попытки: {}",
+        "libpdfium.dylib not found (env PDFIUM_DYLIB / next to libpdfcore / vendor/pdfium / FOLIO_ROOT). Attempts: {}",
         if tried.is_empty() {
-            "файл не найден ни по одному пути".to_string()
+            "the file was not found at any path".to_string()
         } else {
             tried.join("; ")
         }
@@ -315,8 +315,8 @@ extern "C" {
     fn dladdr(addr: *const c_void, info: *mut DlInfo) -> c_int;
 }
 
-/// Путь к самой libpdfcore.dylib (если мы загружены как dylib) — чтобы найти
-/// libpdfium.dylib рядом с собой.
+/// Path to libpdfcore.dylib itself (if we are loaded as a dylib) — so that
+/// libpdfium.dylib can be found next to it.
 fn own_dylib_path() -> Option<PathBuf> {
     let addr = Pdfium::from_library as *const () as *const c_void;
     let mut info = DlInfo {

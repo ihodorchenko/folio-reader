@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// Вкладка «Поиск»: debounce 250 мс, список попаданий, переходы «далее/назад».
+/// "Search" tab: 250 ms debounce, hit list, next/previous navigation.
 struct SearchSidebarView: View {
     let model: ReaderModel
 
@@ -12,8 +12,8 @@ struct SearchSidebarView: View {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
-                TextField("Найти в документе", text: Binding(get: { model.searchQuery },
-                                                          set: { model.searchQuery = $0 }))
+                TextField(L10n.t("Find in Document"), text: Binding(get: { model.searchQuery },
+                                                                   set: { model.searchQuery = $0 }))
                     .textFieldStyle(.plain)
                     .focused($fieldFocused)
                     .onSubmit { model.scheduleSearch() }
@@ -66,12 +66,12 @@ struct SearchSidebarView: View {
     private func hitRow(index: Int, hit: PcSearchHit) -> some View {
         let isActive = model.activeHitIndex == index
         return Button {
-            folioLog("поиск: переход к попаданию \(index + 1) (стр. \(hit.page + 1))")
+            folioLog("search: jump to hit \(index + 1) (p. \(hit.page + 1))")
             model.goToHit(index)
         } label: {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text("Стр. \(hit.page + 1)")
+                    Text(L10n.t("Page %ld", hit.page + 1))
                         .font(.system(size: 10, weight: .medium).monospacedDigit())
                         .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
                     Spacer()
@@ -106,9 +106,9 @@ struct SearchSidebarView: View {
                 Image(systemName: "chevron.up")
             }
             .buttonStyle(.borderless)
-            .help("Предыдущее попадание")
+            .help(L10n.t("Previous Match"))
 
-            Text("\(model.activeHitIndex.map { $0 + 1 } ?? 0) из \(model.searchHits.count)")
+            Text(L10n.t("%ld of %ld", model.activeHitIndex.map { $0 + 1 } ?? 0, model.searchHits.count))
                 .font(.system(size: 11).monospacedDigit())
                 .foregroundStyle(.secondary)
 
@@ -118,7 +118,7 @@ struct SearchSidebarView: View {
                 Image(systemName: "chevron.down")
             }
             .buttonStyle(.borderless)
-            .help("Следующее попадание")
+            .help(L10n.t("Next Match"))
 
             Spacer()
         }
@@ -132,11 +132,11 @@ struct SearchSidebarView: View {
             Image(systemName: model.searchQuery.isEmpty ? "text.magnifyingglass" : "questionmark.folder")
                 .font(.system(size: 28, weight: .light))
                 .foregroundStyle(.tertiary)
-            Text(model.searchQuery.isEmpty ? "Поиск по документу" : "Ничего не найдено")
+            Text(model.searchQuery.isEmpty ? L10n.t("Search the Document") : L10n.t("Nothing Found"))
                 .font(.callout.weight(.medium))
             Text(model.searchQuery.isEmpty
-                 ? "Введите слово или фразу.\nПоиск идёт по текстовому слою PDF."
-                 : "Попробуйте изменить запрос.")
+                 ? L10n.t("Enter a word or phrase.\nSearch runs over the PDF text layer.")
+                 : L10n.t("Try changing the query."))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

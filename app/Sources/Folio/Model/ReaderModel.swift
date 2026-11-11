@@ -4,9 +4,9 @@ import AppKit
 import Observation
 import UniformTypeIdentifiers
 
-// MARK: - Вкладки sidebar
+// MARK: - Sidebar tabs
 
-/// Режим debug-оверлея: выключен / блоки (kind+level+confidence) / рамки каждого слова.
+/// Debug overlay mode: off / elements (kind+level+confidence) / boxes around each word.
 enum DebugOverlayMode: String, CaseIterable, Identifiable {
     case off
     case blocks
@@ -14,11 +14,11 @@ enum DebugOverlayMode: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var titleRu: String {
+    var localizedTitle: String {
         switch self {
-        case .off: return "Разметка выключена"
-        case .blocks: return "Разметка блоков"
-        case .words: return "Рамки слов"
+        case .off: return L10n.t("Layout off")
+        case .blocks: return L10n.t("Element layout")
+        case .words: return L10n.t("Word boxes")
         }
     }
 }
@@ -30,11 +30,11 @@ enum SidebarMode: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var titleRu: String {
+    var localizedTitle: String {
         switch self {
-        case .structure: return "Структура"
-        case .thumbnails: return "Страницы"
-        case .search: return "Поиск"
+        case .structure: return L10n.t("Structure")
+        case .thumbnails: return L10n.t("Pages")
+        case .search: return L10n.t("Search")
         }
     }
 
@@ -47,7 +47,7 @@ enum SidebarMode: String, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - Элемент дерева структуры
+// MARK: - Structure tree item
 
 struct HeadingRow: Identifiable, Hashable {
     let id: String
@@ -57,7 +57,7 @@ struct HeadingRow: Identifiable, Hashable {
     let bbox: PcRect
 }
 
-// MARK: - Запрос прокрутки
+// MARK: - Scroll request
 
 struct ScrollRequest: Equatable {
     let page: Int
@@ -65,44 +65,44 @@ struct ScrollRequest: Equatable {
     let token: Int
 }
 
-// MARK: - Модель ридера
+// MARK: - Reader model
 
-/// Вся логика состояния окна: документ, структура, страницы, зум, поиск, выделение.
-/// Рендер/парсинг — на фоне (`Task.detached`), мутации — на главном акторе.
+/// All window state logic: document, structure, pages, zoom, search, selection.
+/// Rendering/parsing runs in the background (`Task.detached`); mutations run on the main actor.
 @Observable
 @MainActor
 final class ReaderModel {
-    /// Все живые модели (по одной на окно). Слабые ссылки: моделью владеет сцена.
+    /// All live models (one per window). Weak references: the scene owns the model.
     @MainActor static let registry = NSHashTable<ReaderModel>.weakObjects()
 
-    /// Модель активного окна — для ⌘C/⌘D из мониторов событий и пунктов меню.
+    /// Model of the active window — for ⌘C/⌘D from the event monitors and menu items.
     @MainActor static var active: ReaderModel? {
         if let window = NSApp.keyWindow, let model = model(for: window) { return model }
         return registry.allObjects.first
     }
 
-    /// Модель, привязанная к конкретному окну (каждое окно — свой документ).
+    /// Model bound to a specific window (each window has its own document).
     @MainActor static func model(for window: NSWindow?) -> ReaderModel? {
         guard let window else { return nil }
         return registry.allObjects.first { $0.window === window }
     }
 
-    // MARK: Сервисы: настройки, озвучка, перевод
+    // MARK: Services: settings, speech, translation
 
-    /// Пользовательские настройки (озвучка выключена по умолчанию, пара EN → RU).
+    /// User settings (speech off by default, pair EN → RU).
     let settings = SettingsStore.shared
-    /// Синтез речи для выделенного текста.
+    /// Speech synthesis for selected text.
     let speech = SpeechService.shared
-    /// Состояние перевода выделенного фрагмента (сессию создаёт SwiftUI-хост).
+    /// State of the selected-fragment translation (the SwiftUI host creates the session).
     let translation = TranslationController()
 
-    // MARK: Окно
+    // MARK: Window
 
-    /// Окно, в котором живёт эта модель (проставляется через `WindowAccessor`).
+    /// Window this model lives in (set through `WindowAccessor`).
     private(set) weak var window: NSWindow?
     private var windowCloseObserver: NSObjectProtocol?
 
-    // MARK: Документ
+    // MARK: Document
 
     private(set) var doc: (any DocumentProviding)?
     private(set) var documentURL: URL?
@@ -111,16 +111,16 @@ final class ReaderModel {
     var errorMessage: String?
     private(set) var docIdentity: String = ""
 
-    // MARK: Структура и страницы
+    // MARK: Structure and pages
 
     var structure: PcDocumentStructure?
     var pageLayouts: [Int: PcPageLayout] = [:]
     var pageSizes: [CGSize] = []
     var currentPage = 0
-    /// 0…1 — насколько далеко прокручена текущая страница (для активного заголовка).
+    /// 0…1 — how far the current page is scrolled (for the active heading).
     private(set) var currentPageProgress: Double = 0
 
-    // MARK: Отображение
+    // MARK: Display
 
     var zoom: Double = 1.0
     var fitWidth = true
@@ -131,7 +131,7 @@ final class ReaderModel {
     var columnVisibility: NavigationSplitViewVisibility = .all
     var selectedHeadingID: String?
 
-    // MARK: Поиск
+    // MARK: Search
 
     var searchQuery = ""
     var searchHits: [PcSearchHit] = []
@@ -139,16 +139,16 @@ final class ReaderModel {
     var activeHitIndex: Int?
     var focusSearchRequest = 0
 
-    // MARK: Выделение
+    // MARK: Selection
 
     var selection: Selection?
 
-    // MARK: Снапшот/приёмка
+    // MARK: Snapshot/acceptance
 
-    /// Только для `--snapshot`: документ готов, страницы и layout первой страницы загружены.
+    /// `--snapshot` only: the document is ready, the pages and the first page's layout are loaded.
     private(set) var snapshotMode = false
 
-    // MARK: Служебное
+    // MARK: Internals
 
     private var loadTask: Task<Void, Never>?
     private var loadToken = UUID()
@@ -158,30 +158,30 @@ final class ReaderModel {
     var scrollRequest: ScrollRequest?
     private var searchTask: Task<Void, Never>?
     private var didBootstrap = false
-    /// Восстановление последней книги — только один раз за запуск приложения.
+    /// Restoring the last book — only once per application launch.
     private static var hasRestoredLastDocument = false
     private var positionSaveTask: Task<Void, Never>?
     private var pendingRestorePosition: ReadingPosition?
     private var windowAttached = false
 
-    // MARK: - Инициализация
+    // MARK: - Initialization
 
     init() {
         Self.registry.add(self)
     }
 
-    /// Окно стало активным: именно эту книгу восстанавливать при следующем запуске.
+    /// The window became active: this is the book to restore on the next launch.
     func activate() {
         guard let url = documentURL else { return }
         ReadingPositionStore.setLastDocument(url)
     }
 
-    /// Привязка к окну: нужно для мониторов ⌘C/⌘D, сохранения позиции и отчётов.
+    /// Bind to the window: needed for the ⌘C/⌘D monitors, position saving and reports.
     func attach(window: NSWindow?) {
         guard let window, window !== self.window else { return }
         self.window = window
-        // Свои окна не отдаём системному восстановлению: иначе при следующем
-        // запуске macOS поднимает столько окон, сколько было открыто.
+        // Do not hand our windows to system restoration: otherwise on the next
+        // launch macOS raises as many windows as were open.
         window.isRestorable = false
         if let windowCloseObserver {
             NotificationCenter.default.removeObserver(windowCloseObserver)
@@ -195,16 +195,16 @@ final class ReaderModel {
         }
         if !windowAttached {
             windowAttached = true
-            folioLog("window: окно привязано к модели, документ=\(documentURL?.lastPathComponent ?? "—")")
+            folioLog("window: attached to model, document=\(documentURL?.lastPathComponent ?? "—")")
         }
     }
 
-    /// Префиксы ключей кэша рендера: в ключе есть отпечаток документа,
-    /// чтобы после открытия другого PDF не показать чужую страницу.
+    /// Render cache key prefixes: the key carries the document fingerprint,
+    /// so that after opening another PDF we do not show someone else's page.
     var pageRenderPrefix: String { "page:\(docIdentity)" }
     var thumbnailPrefix: String { "thumb:\(docIdentity)" }
 
-    // MARK: - Производные значения
+    // MARK: - Derived values
 
     var pageCount: Int {
         if let doc { return doc.pageCount }
@@ -222,23 +222,23 @@ final class ReaderModel {
     }
 
     var statusText: String {
-        if isLoading { return "Загрузка…" }
-        guard doc != nil else { return errorMessage == nil ? "Нет документа" : "Ошибка открытия" }
+        if isLoading { return L10n.t("Loading…") }
+        guard doc != nil else { return errorMessage == nil ? L10n.t("No document") : L10n.t("Open failed") }
         var parts: [String] = []
         if isMock {
-            parts.append("демо-документ (ядро не собрано)")
+            parts.append(L10n.t("Core not built — demo document shown"))
         } else {
             parts.append(CoreLibrary.shared()?.versionString ?? "pdfcore")
         }
-        parts.append("\(pageCount) стр.")
+        parts.append(L10n.t("%ld pages", pageCount))
         if let structure {
-            parts.append("заголовков: \(structure.headings.count)")
-            if structure.tagged { parts.append("tagged PDF") }
+            parts.append(L10n.t("headings: %ld", structure.headings.count))
+            if structure.tagged { parts.append(L10n.t("tagged PDF")) }
         }
         return parts.joined(separator: " • ")
     }
 
-    /// Оценка размера страницы, пока реальные размеры не загрузились.
+    /// Page size estimate until the real sizes are loaded.
     var estimatedPageSize: CGSize {
         if let first = pageSizes.first, first.width > 1, first.height > 1 {
             return first
@@ -258,7 +258,7 @@ final class ReaderModel {
         return estimatedPageSize
     }
 
-    /// Масштаб рендера в пикселях на точку: зум × backing scale, с ограничением ~4096 px по ширине.
+    /// Render scale in pixels per point: zoom × backing scale, capped at ~4096 px in width.
     var renderScale: CGFloat {
         let base = zoom * Double(backingScale)
         let width = Double(estimatedPageSize.width)
@@ -267,7 +267,7 @@ final class ReaderModel {
         return CGFloat(min(base, maxPixelWidth / width))
     }
 
-    // MARK: - Структура sidebar
+    // MARK: - Sidebar structure
 
     var headingRows: [HeadingRow] {
         guard let structure else { return [] }
@@ -300,26 +300,26 @@ final class ReaderModel {
         return result
     }
 
-    // MARK: - Открытие документа
+    // MARK: - Opening a document
 
-    /// Старт сцены: документ из значения окна, из отложенной очереди или последний открытый.
+    /// Scene start: the document from the window value, from the pending queue, or the last opened one.
     func start(documentURL: URL?) {
         guard !didBootstrap, !snapshotMode else { return }
         didBootstrap = true
         WindowReport.event("model.start value=\(documentURL?.lastPathComponent ?? "—")")
 
-        // 1. Документ, с которым создано окно (Finder «Открыть с помощью» / ⌘N с файлом).
+        // 1. The document the window was created with (Finder "Open With" / ⌘N with a file).
         if let url = documentURL {
             open(url: url)
             return
         }
-        // 2. Файл, пришедший до появления первого окна.
+        // 2. A file that arrived before the first window appeared.
         if let pending = WindowRouter.shared.takePendingURL() {
             open(url: pending)
             return
         }
-        // 3. PDF из аргументов командной строки (запуск из терминала).
-        //    Берём только *.pdf: у флагов вроде --window-report тоже есть значения.
+        // 3. A PDF from the command-line arguments (launched from a terminal).
+        //    Take only *.pdf: flags like --window-report have values too.
         let candidates = CommandLine.arguments.dropFirst().filter {
             !$0.hasPrefix("-") && $0.lowercased().hasSuffix(".pdf")
         }
@@ -327,24 +327,24 @@ final class ReaderModel {
             open(url: URL(fileURLWithPath: path))
             return
         }
-        // 4. Последний открытый документ — восстанавливаем с небольшой задержкой:
-        //    open-событие из Finder приходит в первые ~100 мс, и тогда старая книга
-        //    не нужна (иначе получалось две версии приложения).
+        // 4. The last opened document — restore it with a small delay:
+        //    the open event from Finder arrives within the first ~100 ms, and then the old book
+        //    is not wanted (otherwise we got two app instances).
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 350_000_000)
             guard let self, self.documentURL == nil, !Self.hasRestoredLastDocument else { return }
             Self.hasRestoredLastDocument = true
             guard let last = ReadingPositionStore.lastDocument() else { return }
-            folioLog("restore: открываю последний документ \(last.path)")
-            WindowReport.event("restore последнего документа")
+            folioLog("restore: opening the last document \(last.path)")
+            WindowReport.event("restore last document")
             self.open(url: last)
         }
-        // 5. Если ничего не пришло — пустое состояние с кнопкой «Открыть…».
+        // 5. If nothing arrived — the empty state with the "Open…" button.
     }
 
     func open(url: URL) {
         WindowReport.event("model.open \(url.lastPathComponent)")
-        // Место в текущем документе не теряем при переходе к другой книге.
+        // Do not lose the current document's position when switching to another book.
         persistReadingPosition()
         let savedPosition = snapshotMode ? nil : ReadingPositionStore.load(for: url)
         pendingRestorePosition = savedPosition
@@ -378,7 +378,7 @@ final class ReaderModel {
         isLoading = true
         docIdentity = "loading:\(url.lastPathComponent)"
         RenderStore.shared.removeAll()
-        folioLog("open: \(url.path) mode=\(PdfCore.isMockMode ? "mock (ядро не найдено)" : "core")")
+        folioLog("open: \(url.path) mode=\(PdfCore.isMockMode ? "mock (core not found)" : "core")")
 
         loadTask = Task { [weak self] in
             guard let self else { return }
@@ -388,19 +388,19 @@ final class ReaderModel {
                 }.value
                 guard self.isCurrent(token) else { return }
 
-                // Ядро есть, но файл не открылся → оно вернуло мок. В реальном
-                // режиме это ошибка, а не «демо-документ».
+                // The core is present but the file did not open → it returned a mock. In real
+                // mode this is an error, not a "demo document".
                 if provider.isMock, !PdfCore.isMockMode {
-                    throw PdfCoreError.openFailed("ядро не смогло открыть файл")
+                    throw PdfCoreError.openFailed(L10n.t("the core could not open the file"))
                 }
 
                 self.doc = provider
                 self.isMock = provider.isMock
                 self.docIdentity = provider.fingerprint
-                folioLog("open: документ \(provider.isMock ? "МОК" : "ядро"), страниц \(provider.pageCount)")
+                folioLog("open: document \(provider.isMock ? "MOCK" : "core"), pages \(provider.pageCount)")
 
-                // Размеры страниц — быстрыми вызовами отдельно, чтобы страницы
-                // появились сразу, не дожидаясь анализа структуры.
+                // Page sizes come from fast calls, separately, so the pages
+                // appear immediately without waiting for structure analysis.
                 let loadedSizes = await Task.detached(priority: .userInitiated) { () -> [CGSize] in
                     let fallback = CGSize(width: 612, height: 792)
                     var result: [CGSize] = []
@@ -416,7 +416,7 @@ final class ReaderModel {
                 if let first = loadedSizes.first { self.applyFitWidth(pageWidth: first.width) }
                 self.requestLayout(0)
                 self.scrollTo(page: 0, bbox: nil)
-                folioLog("open: размеры страниц получены (\(loadedSizes.count))")
+                folioLog("open: page sizes received (\(loadedSizes.count))")
 
                 let loadedStructure = try await Task.detached(priority: .userInitiated) {
                     try provider.structure()
@@ -424,14 +424,14 @@ final class ReaderModel {
                 guard self.isCurrent(token) else { return }
                 self.structure = loadedStructure
                 self.selectedHeadingID = self.computedActiveHeadingID
-                folioLog("open: структура — заголовков \(loadedStructure.headings.count), tagged=\(loadedStructure.tagged)")
+                folioLog("open: structure — headings \(loadedStructure.headings.count), tagged=\(loadedStructure.tagged)")
 
                 if let position = self.pendingRestorePosition {
                     self.pendingRestorePosition = nil
                     self.applyReadingPosition(position)
                 }
 
-                // Кэш последнего документа нужен только интерактивному режиму.
+                // The last-document entry is only needed in interactive mode.
                 if !self.snapshotMode {
                     ReadingPositionStore.setLastDocument(url)
                 }
@@ -439,15 +439,15 @@ final class ReaderModel {
                 guard self.isCurrent(token) else { return }
                 self.isLoading = false
                 self.doc = nil
-                self.errorMessage = "Не удалось открыть «\(url.lastPathComponent)»: \(error.localizedDescription)"
-                folioLog("open: ОШИБКА \(error.localizedDescription)")
+                self.errorMessage = L10n.t("Could Not Open “%@”: %@", url.lastPathComponent, error.localizedDescription)
+                folioLog("open: ERROR \(error.localizedDescription)")
             }
         }
     }
 
     private func isCurrent(_ token: UUID) -> Bool { token == loadToken }
 
-    // MARK: - Layout страниц
+    // MARK: - Page layout
 
     func requestLayout(_ page: Int) {
         guard let doc, page >= 0, page < pageCount else { return }
@@ -461,7 +461,7 @@ final class ReaderModel {
             }.value
             self.layoutRequests.remove(page)
             guard let layout else {
-                folioLog("layout: страница \(page) недоступна (ядро не отдало layout)")
+                folioLog("layout: page \(page) unavailable (the core did not return a layout)")
                 return
             }
             var updated = self.pageLayouts
@@ -483,7 +483,7 @@ final class ReaderModel {
         return geometry
     }
 
-    /// Тёплая подгрузка страниц вокруг текущей (видимые ±2).
+    /// Warm up pages around the current one (visible ±2).
     func prefetch(around page: Int) {
         guard let doc else { return }
         for offset in -2...2 {
@@ -494,7 +494,7 @@ final class ReaderModel {
         }
     }
 
-    // MARK: - Прокрутка и текущая страница
+    // MARK: - Scrolling and the current page
 
     func scrollTo(page: Int, bbox: PcRect?) {
         guard pageCount > 0 else { return }
@@ -524,7 +524,7 @@ final class ReaderModel {
     func nextPage() { goToPage(currentPage + 1) }
     func previousPage() { goToPage(currentPage - 1) }
 
-    // MARK: - Зум
+    // MARK: - Zoom
 
     private static let zoomSteps: [Double] = [0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0]
 
@@ -570,28 +570,28 @@ final class ReaderModel {
         }
     }
 
-    // MARK: - Разметка / экспорт
+    // MARK: - Overlay / export
 
     var showDebugOverlay: Bool { debugMode != .off }
 
     func setDebugMode(_ mode: DebugOverlayMode) {
         debugMode = mode
-        folioLog("разметка: \(mode.titleRu)")
+        folioLog("overlay: \(mode.localizedTitle)")
     }
 
-    /// Кнопка в тулбаре: включить разметку блоков / выключить.
+    /// Toolbar button: turn the element overlay on / off.
     func toggleDebugOverlay() {
         setDebugMode(showDebugOverlay ? .off : .blocks)
     }
 
-    /// Отдельный тумблер «слова»: рамки вокруг каждого слова.
+    /// Separate "words" toggle: boxes around every word.
     func toggleWordBoxes() {
         setDebugMode(debugMode == .words ? .off : .words)
     }
 
     func exportStructureJSON() {
         guard let structure else {
-            folioLog("export: структура ещё не загружена")
+            folioLog("export: structure is not loaded yet")
             NSSound.beep()
             return
         }
@@ -599,17 +599,17 @@ final class ReaderModel {
         panel.allowedContentTypes = [.json]
         let base = (documentURL?.deletingPathExtension().lastPathComponent) ?? "folio"
         panel.nameFieldStringValue = "\(base)-structure.json"
-        panel.message = "Экспорт структуры документа в JSON"
+        panel.message = L10n.t("Export Document Structure as JSON")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(structure)
             try data.write(to: url)
-            folioLog("export: структура сохранена в \(url.path) (\(data.count) байт)")
+            folioLog("export: structure saved to \(url.path) (\(data.count) bytes)")
         } catch {
-            errorMessage = "Не удалось сохранить структуру: \(error.localizedDescription)"
-            folioLog("export: ошибка \(error.localizedDescription)")
+            errorMessage = L10n.t("Could Not Save the Structure: %@", error.localizedDescription)
+            folioLog("export: error \(error.localizedDescription)")
         }
     }
 
@@ -618,13 +618,13 @@ final class ReaderModel {
         panel.allowedContentTypes = [.pdf]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.message = "Выберите PDF-документ"
-        panel.prompt = "Открыть"
+        panel.message = L10n.t("Choose a PDF document")
+        panel.prompt = L10n.t("Open")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         open(url: url)
     }
 
-    // MARK: - Поиск
+    // MARK: - Search
 
     func scheduleSearch() {
         searchTask?.cancel()
@@ -637,7 +637,7 @@ final class ReaderModel {
         }
         isSearching = true
         searchTask = Task { [weak self] in
-            // debounce 250 мс — не дёргаем ядро на каждое нажатие
+            // 250 ms debounce — do not hit the core on every keystroke
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard !Task.isCancelled, let self else { return }
             let hits = (try? await Task.detached(priority: .userInitiated) {
@@ -647,7 +647,7 @@ final class ReaderModel {
             self.searchHits = hits
             self.isSearching = false
             self.activeHitIndex = hits.isEmpty ? nil : 0
-            folioLog("поиск: «\(query)» — найдено \(hits.count)")
+            folioLog("search: \"\(query)\" — \(hits.count) found")
             if let first = hits.first {
                 self.scrollTo(page: first.page, bbox: first.rects.first)
             }
@@ -686,14 +686,14 @@ final class ReaderModel {
         focusSearchRequest += 1
     }
 
-    // MARK: - Выделение и словарь
+    // MARK: - Selection and dictionary
 
     func setSelection(_ selection: Selection?) {
         let wasEmpty = self.selection?.isEmpty ?? true
         self.selection = selection
-        // Не логируем каждый шаг протяжки — только начало нового выделения.
+        // Do not log every drag step — only the start of a new selection.
         if wasEmpty, let selection, !selection.isEmpty {
-            folioLog("выделение: стр. \(selection.page + 1), слов \(selection.rects.count), «\(String(selection.text.prefix(80)))»")
+            folioLog("selection: page \(selection.page + 1), words \(selection.rects.count), \"\(String(selection.text.prefix(80)))\"")
         }
     }
 
@@ -704,51 +704,51 @@ final class ReaderModel {
     @discardableResult
     func copySelection() -> Bool {
         guard let selection, !selection.isEmpty else {
-            folioLog("copy: нет выделения — нечего копировать")
+            folioLog("copy: no selection — nothing to copy")
             return false
         }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         let ok = pasteboard.setString(selection.text, forType: .string)
-        folioLog("copy: \(ok ? "скопировано" : "ОШИБКА") \(selection.text.count) символов: «\(String(selection.text.prefix(120)))»")
+        folioLog("copy: \(ok ? "copied" : "ERROR") \(selection.text.count) characters: \"\(String(selection.text.prefix(120)))\"")
         return ok
     }
 
-    // MARK: - Озвучка и перевод
+    // MARK: - Speech and translation
 
-    /// Озвучить произвольный фрагмент (выделение, слово под курсором, перевод).
-    /// Молча отказывается, если озвучка выключена в настройках.
+    /// Speak an arbitrary fragment (selection, word under the cursor, translation).
+    /// Silently refuses if speech is disabled in settings.
     @discardableResult
-    func speak(_ text: String, origin: String = "выделения") -> Bool {
+    func speak(_ text: String, origin: String = "selection") -> Bool {
         let ok = speech.speak(text)
         if !ok, !settings.speechEnabled {
-            folioLog("speech: \(origin) — озвучка выключена, подсказываю настройки")
+            folioLog("speech: \(origin) — speech disabled, suggesting settings")
         }
         return ok
     }
 
-    /// «Озвучить выделение» из меню/контекстного меню.
+    /// "Speak Selection" from the menu/context menu.
     func speakSelection() {
         guard let selection, !selection.isEmpty else {
-            folioLog("speech: нет выделения — читать нечего")
+            folioLog("speech: no selection — nothing to read")
             NSSound.beep()
             return
         }
         guard settings.speechEnabled else {
-            folioLog("speech: озвучка выключена — открываю настройки")
+            folioLog("speech: speech disabled — opening settings")
             NSSound.beep()
             presentSettings()
             return
         }
-        speak(selection.text, origin: "выделения")
+        speak(selection.text, origin: "selection")
     }
 
     func stopSpeaking() {
         speech.stop()
     }
 
-    /// Перевести текст (выделение или слово) и показать панель перевода.
-    func translate(_ text: String, origin: String = "выделения") {
+    /// Translate text (selection or word) and show the translation panel.
+    func translate(_ text: String, origin: String = "selection") {
         guard #available(macOS 15.0, *) else {
             translation.unavailableOnThisSystem()
             return
@@ -759,35 +759,35 @@ final class ReaderModel {
                             origin: origin)
     }
 
-    /// «Перевести выделение» из меню/контекстного меню.
+    /// "Translate Selection" from the menu/context menu.
     func translateSelection() {
         guard let selection, !selection.isEmpty else {
-            folioLog("translate: нет выделения — переводить нечего")
+            folioLog("translate: no selection — nothing to translate")
             NSSound.beep()
             return
         }
-        translate(selection.text, origin: "выделения")
+        translate(selection.text, origin: "selection")
     }
 
-    /// Открыть окно настроек (⌘,).
+    /// Open the settings window (⌘,).
     func presentSettings() {
         SettingsWindow.shared.show()
     }
 
-    /// ⌘D и пункт меню «Найти в словаре»: активная страница активного окна.
+    /// ⌘D and the "Look Up in Dictionary" menu item: the active page of the active window.
     func performLookUp() {
         let pageView = PageCanvasView.active(in: window) ?? PageCanvasView.active
         guard let pageView else {
-            folioLog("lookup: нет активной страницы (сначала кликните по странице)")
+            folioLog("lookup: no active page (click a page first)")
             NSSound.beep()
             return
         }
         pageView.lookUpAtHover()
     }
 
-    // MARK: - Позиция чтения
+    // MARK: - Reading position
 
-    /// Сохранить страницу/прокрутку/зум текущего документа.
+    /// Save the current document's page/scroll/zoom.
     func persistReadingPosition() {
         guard !snapshotMode, let url = documentURL, pageCount > 0, !isLoading else { return }
         let position = ReadingPosition(page: currentPage,
@@ -797,7 +797,7 @@ final class ReaderModel {
         ReadingPositionStore.save(position, for: url)
     }
 
-    /// Сохранение с задержкой: прокрутка меняет позицию десятки раз в секунду.
+    /// Delayed saving: scrolling changes the position dozens of times a second.
     private func schedulePositionSave() {
         guard !snapshotMode else { return }
         positionSaveTask?.cancel()
@@ -808,7 +808,7 @@ final class ReaderModel {
         }
     }
 
-    /// Применить сохранённую позицию после загрузки структуры документа.
+    /// Apply the saved position after the document structure has loaded.
     private func applyReadingPosition(_ position: ReadingPosition) {
         let page = min(max(position.page, 0), max(pageCount - 1, 0))
         if position.fitWidth {
@@ -822,11 +822,11 @@ final class ReaderModel {
         let height = Double(pageSize(page).height)
         let y = currentPageProgress * max(height, 1)
         let bbox = PcRect(x: 0, y: y, w: 1, h: 1)
-        folioLog("restore: страница \(page + 1) из \(pageCount), прокрутка \(String(format: "%.0f", currentPageProgress * 100))%, зум \(String(format: "%.2f", zoom))")
-        folioLog("restore: применяю позицию — стр. \(page + 1), доля \(String(format: "%.2f", currentPageProgress)), зум \(String(format: "%.2f", zoom))")
-        // Даём DetailView появиться, иначе onChange(scrollRequest) не сработает.
-        // После смены зума LazyVStack перестраивается, поэтому проверяем, что реально
-        // доехали до страницы, и при необходимости повторяем прокрутку.
+        folioLog("restore: page \(page + 1) of \(pageCount), scroll \(String(format: "%.0f", currentPageProgress * 100))%, zoom \(String(format: "%.2f", zoom))")
+        folioLog("restore: applying position — page \(page + 1), fraction \(String(format: "%.2f", currentPageProgress)), zoom \(String(format: "%.2f", zoom))")
+        // Let DetailView appear, otherwise onChange(scrollRequest) will not fire.
+        // After a zoom change LazyVStack rebuilds, so check that we actually
+        // reached the page and repeat the scroll when needed.
         Task { [weak self] in
             for attempt in 0..<3 {
                 try? await Task.sleep(nanoseconds: attempt == 0 ? 200_000_000 : 450_000_000)
@@ -834,15 +834,15 @@ final class ReaderModel {
                 self.scrollTo(page: page, bbox: bbox)
                 try? await Task.sleep(nanoseconds: 400_000_000)
                 if self.currentPage == page {
-                    folioLog("restore: страница \(page + 1) на месте (попытка \(attempt + 1))")
+                    folioLog("restore: page \(page + 1) in place (attempt \(attempt + 1))")
                     return
                 }
-                folioLog("restore: страница \(page + 1) не достигнута (видно \(self.currentPage + 1)), повтор \(attempt + 2)")
+                folioLog("restore: page \(page + 1) not reached (showing \(self.currentPage + 1)), retry \(attempt + 2)")
             }
         }
     }
 
-    // MARK: - Снапшот-режим
+    // MARK: - Snapshot mode
 
     func configureForSnapshot() {
         snapshotMode = true

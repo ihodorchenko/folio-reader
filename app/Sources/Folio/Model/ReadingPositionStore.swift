@@ -1,17 +1,17 @@
 import Foundation
 
-/// Позиция чтения, которую нужно восстановить при следующем открытии документа.
+/// Reading position to restore the next time the document is opened.
 struct ReadingPosition: Codable, Sendable, Equatable {
     var page: Int
-    /// 0…1 — насколько далеко прокручена страница (как `currentPageProgress`).
+    /// 0…1 — how far the page is scrolled (same as `currentPageProgress`).
     var progress: Double
     var zoom: Double
     var fitWidth: Bool
 }
 
-/// Хранилище позиций чтения: `UserDefaults`, ключ `Folio.readingPositions`
-/// (путь документа → позиция). Плюс последний открытый документ — для запуска
-/// приложения «с того места».
+/// Reading position store: `UserDefaults`, key `Folio.readingPositions`
+/// (document path → position). Plus the last opened document — to launch
+/// the app "where it left off".
 @MainActor
 enum ReadingPositionStore {
     private static let positionsKey = "Folio.readingPositions"
@@ -21,7 +21,7 @@ enum ReadingPositionStore {
 
     private static var defaults: UserDefaults { .standard }
 
-    // MARK: - Позиция документа
+    // MARK: - Document position
 
     static func save(_ position: ReadingPosition, for url: URL) {
         guard url.isFileURL else { return }
@@ -55,7 +55,7 @@ enum ReadingPositionStore {
         defaults.set(all, forKey: positionsKey)
     }
 
-    // MARK: - Последний документ
+    // MARK: - Last document
 
     static func setLastDocument(_ url: URL?) {
         if let url {
@@ -65,14 +65,14 @@ enum ReadingPositionStore {
         }
     }
 
-    /// Последний документ, если файл ещё существует.
+    /// Last document, if the file still exists.
     static func lastDocument() -> URL? {
         guard let path = defaults.string(forKey: lastDocumentKey),
               FileManager.default.fileExists(atPath: path) else { return nil }
         return URL(fileURLWithPath: path)
     }
 
-    // MARK: - Внутреннее
+    // MARK: - Internals
 
     private static func key(for url: URL) -> String {
         url.standardizedFileURL.path
@@ -82,7 +82,7 @@ enum ReadingPositionStore {
         (defaults.dictionary(forKey: positionsKey) as? [String: [String: Any]]) ?? [:]
     }
 
-    /// Не даём словарю расти бесконечно: оставляем последние `limit` документов.
+    /// Keep the dictionary from growing forever: retain the most recent `limit` documents.
     private static func trim(_ all: inout [String: [String: Any]]) {
         guard all.count > limit else { return }
         let sorted = all.sorted {

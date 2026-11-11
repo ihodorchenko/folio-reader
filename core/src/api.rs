@@ -1,5 +1,5 @@
-//! Безопасный Rust-API ядра: документ, кэши layout/structure JSON, рендер,
-//! поиск. Используется CLI и C-ABI (`ffi_api`).
+//! Safe Rust API of the core: document, layout/structure JSON caches, rendering,
+//! search. Used by the CLI and the C ABI (`ffi_api`).
 
 use crate::ffi::*;
 use crate::json_types::*;
@@ -20,25 +20,25 @@ struct Inner {
     analysis: Option<Arc<Analysis>>,
     layout_json: HashMap<i32, Arc<str>>,
     structure_json: Option<Arc<str>>,
-    /// Содержимое вертикально отражено (Quartz print-to-PDF): координаты
-    /// нормализуются, а растр переворачивается, чтобы текст ложился на картинку.
+    /// The content is vertically mirrored (Quartz print-to-PDF): coordinates
+    /// are normalized and the raster is flipped so the text lands on the image.
     y_flip: Option<bool>,
 }
 
-// Все обращения к PDFium идут под глобальным мьютексом (ffi::PDFIUM_LOCK),
-// поэтому документ можно безопасно передавать между потоками.
+// All PDFium access goes under the global mutex (ffi::PDFIUM_LOCK),
+// so the document can be safely sent between threads.
 unsafe impl Send for Document {}
 unsafe impl Sync for Document {}
 
 impl Document {
     pub fn open(path: &str) -> Result<Document, String> {
         let (p, _guard) = pdfium_locked()?;
-        let cpath = CString::new(path).map_err(|_| "путь содержит NUL".to_string())?;
+        let cpath = CString::new(path).map_err(|_| "path contains NUL".to_string())?;
         let handle = unsafe { (p.FPDF_LoadDocument)(cpath.as_ptr(), std::ptr::null()) };
         if handle.is_null() {
             let code = unsafe { (p.FPDF_GetLastError)() };
             return Err(format!(
-                "не удалось открыть «{}»: {} (код {})",
+                "failed to open «{}»: {} (code {})",
                 path,
                 Pdfium::error_name(code),
                 code
@@ -47,7 +47,7 @@ impl Document {
         let page_count = unsafe { (p.FPDF_GetPageCount)(handle) };
         if page_count < 0 {
             unsafe { (p.FPDF_CloseDocument)(handle) };
-            return Err("PDFium не смог определить число страниц".to_string());
+            return Err("PDFium could not determine the page count".to_string());
         }
         let mut sizes = Vec::with_capacity(page_count as usize);
         for i in 0..page_count {
@@ -90,7 +90,7 @@ impl Document {
         let inner = self.lock()?;
         if page < 0 || page >= inner.page_count {
             return Err(format!(
-                "страница {} вне диапазона 0..{}",
+                "page {} out of range 0..{}",
                 page,
                 inner.page_count - 1
             ));
@@ -141,7 +141,7 @@ impl Document {
         {
             let inner = self.lock()?;
             if page < 0 || page >= inner.page_count {
-                return Err(format!("страница {} вне диапазона", page));
+                return Err(format!("page {} out of range", page));
             }
             if let Some(s) = inner.layout_json.get(&page) {
                 return Ok(s.to_string());
@@ -151,7 +151,7 @@ impl Document {
         let layout = analysis
             .layouts
             .get(page as usize)
-            .ok_or_else(|| format!("нет layout для страницы {}", page))?;
+            .ok_or_else(|| format!("no layout for page {}", page))?;
         let json = serde_json::to_string(layout).map_err(|e| format!("JSON: {}", e))?;
         let mut inner = self.lock()?;
         inner.layout_json.insert(page, Arc::from(json.as_str()));
@@ -184,7 +184,7 @@ impl Document {
             .layouts
             .get(page as usize)
             .cloned()
-            .ok_or_else(|| format!("нет layout для страницы {}", page))
+            .ok_or_else(|| format!("no layout for page {}", page))
     }
 
     pub fn search_json(&self, query: &str) -> Result<String, String> {
@@ -200,17 +200,17 @@ impl Document {
         structure::search(p, inner.handle, query, 500)
     }
 
-    /// Отладочные сырые символы страницы (до группировки в слова/строки).
+    /// Debug raw page characters (before grouping into words/lines).
     pub fn raw_page_chars(&self, page: i32) -> Result<Vec<crate::text::RawChar>, String> {
         let inner = self.lock()?;
         if page < 0 || page >= inner.page_count {
-            return Err(format!("страница {} вне диапазона", page));
+            return Err(format!("page {} out of range", page));
         }
         let (p, _guard) = pdfium_locked()?;
         unsafe {
             let pg = (p.FPDF_LoadPage)(inner.handle, page);
             if pg.is_null() {
-                return Err(format!("не удалось загрузить страницу {}", page));
+                return Err(format!("failed to load page {}", page));
             }
             let geo = crate::text::page_geometry(p, pg);
             let chars = crate::text::extract_chars(p, pg, &geo);
@@ -219,21 +219,21 @@ impl Document {
         }
     }
 
-    /// Рендер страницы в BGRA (порядок байт B,G,R,A), alpha=255, фон белый.
+    /// Render a page to BGRA (byte order B,G,R,A), alpha=255, white background.
     pub fn render_page(&self, page: i32, scale: f64) -> Result<RenderOutput, String> {
         if !(scale > 0.0) || !scale.is_finite() {
-            return Err("scale должен быть > 0".to_string());
+            return Err("scale must be > 0".to_string());
         }
         let mut inner = self.lock()?;
         if page < 0 || page >= inner.page_count {
-            return Err(format!("страница {} вне диапазона", page));
+            return Err(format!("page {} out of range", page));
         }
         let flip_y = self.compute_y_flip(&mut inner)?;
         let (p, _guard) = pdfium_locked()?;
         unsafe {
             let pg = (p.FPDF_LoadPage)(inner.handle, page);
             if pg.is_null() {
-                return Err(format!("не удалось загрузить страницу {}", page));
+                return Err(format!("failed to load page {}", page));
             }
             let result = render_loaded(p, pg, scale, flip_y);
             (p.FPDF_ClosePage)(pg);
@@ -245,13 +245,13 @@ impl Document {
 pub struct RenderOutput {
     pub width: i32,
     pub height: i32,
-    /// BGRA, row 0 — верхняя строка изображения.
+    /// BGRA, row 0 is the top row of the image.
     pub bgra: Vec<u8>,
 }
 
-/// Порядок строк в буфере PDFium: `FPDFBitmap` хранит первую строку сверху,
-/// но проверяем эмпирически в тесте `render_orientation` — здесь строки
-/// копируются как есть (см. комментарий в тесте).
+/// Row order in the PDFium buffer: `FPDFBitmap` stores the first row at the top,
+/// but we verify this empirically in the `render_orientation` test — here rows are
+/// copied as is (see the comment in the test).
 pub const FLIP_RENDER_ROWS: bool = false;
 
 unsafe fn render_loaded(
@@ -264,16 +264,16 @@ unsafe fn render_loaded(
     let disp_w = (p.FPDF_GetPageWidthF)(page) as f64;
     let disp_h = (p.FPDF_GetPageHeightF)(page) as f64;
     if !(disp_w > 0.0) || !(disp_h > 0.0) {
-        return Err("страница нулевого размера".to_string());
+        return Err("page of zero size".to_string());
     }
     let w = ((disp_w * scale).round() as i32).max(1);
     let h = ((disp_h * scale).round() as i32).max(1);
     if w as i64 * h as i64 > 400_000_000 {
-        return Err("слишком большой растровый буфер (scale?)".to_string());
+        return Err("raster buffer too large (scale?)".to_string());
     }
     let bitmap = (p.FPDFBitmap_CreateEx)(w, h, FPDFBitmap_BGRA, std::ptr::null_mut(), 0);
     if bitmap.is_null() {
-        return Err("не удалось создать bitmap".to_string());
+        return Err("failed to create bitmap".to_string());
     }
     (p.FPDFBitmap_FillRect)(bitmap, 0, 0, w, h, 0xFFFF_FFFF);
     (p.FPDF_RenderPageBitmap)(bitmap, page, 0, 0, w, h, rotation, FPDF_ANNOT);
@@ -284,7 +284,7 @@ unsafe fn render_loaded(
     let mut out = vec![0u8; row_bytes * h as usize];
     if buf.is_null() || stride < row_bytes {
         (p.FPDFBitmap_Destroy)(bitmap);
-        return Err("bitmap без буфера".to_string());
+        return Err("bitmap without a buffer".to_string());
     }
     for y in 0..h as usize {
         let src = buf.add(y * stride);
@@ -303,12 +303,12 @@ unsafe fn render_loaded(
         }
         out = flipped;
     }
-    // Для документов с вертикально отражённым содержимым растр
-    // переворачиваем: координаты текста нормализованы так же.
+    // For documents with vertically mirrored content we flip the raster:
+    // the text coordinates are normalized the same way.
     if flip_y {
         crate::text::flip_rows_bgra(&mut out, w, h);
     }
-    // alpha всегда 255 (PDFium на белом фоне обычно уже так, но гарантируем).
+    // alpha is always 255 (PDFium on a white background usually already does this, but we guarantee it).
     for px in out.chunks_exact_mut(4) {
         px[3] = 255;
     }

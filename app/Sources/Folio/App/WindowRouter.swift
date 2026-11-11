@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// Маршрутизация «открыть файл» между окнами.
+/// Routing «open file» between windows.
 ///
-/// Правила:
-/// 1. Если есть окно без документа (только что запущенное приложение) — открываем в нём.
-/// 2. Если окон ещё нет (файл пришёл до создания сцены) — запоминаем и отдаём первой сцене.
-/// 3. Иначе открываем **новое окно** с этим файлом: другие окна сохраняют свои книги.
+/// Rules:
+/// 1. If there is a window without a document (app just launched) — open in it.
+/// 2. If there are no windows yet (the file arrived before the scene was created) — remember it and hand it to the first scene.
+/// 3. Otherwise open a **new window** with this file: the other windows keep their books.
 @MainActor
 final class WindowRouter {
     static let shared = WindowRouter()
@@ -17,42 +17,42 @@ final class WindowRouter {
         openWindowAction = action
     }
 
-    /// Запрос извне: Finder «Открыть с помощью → Folio», `open -a Folio file.pdf`.
+    /// Request from outside: Finder «Open With → Folio», `open -a Folio file.pdf`.
     func openDocument(_ url: URL) {
         guard url.isFileURL else { return }
         let models = ReaderModel.registry.allObjects
-        folioLog("router: запрос открыть \(url.lastPathComponent); окон моделей=\(models.count)")
-        WindowReport.event("router.openDocument \(url.lastPathComponent): моделей=\(models.count), окон=\(NSApp.windows.count)")
+        folioLog("router: request to open \(url.lastPathComponent); model windows=\(models.count)")
+        WindowReport.event("router.openDocument \(url.lastPathComponent): models=\(models.count), windows=\(NSApp.windows.count)")
 
-        // 1. Пустое окно (холодный старт) — используем его, чтобы не плодить дубли.
+        // 1. Empty window (cold start) — use it so we don't pile up duplicates.
         if let blank = models.first(where: { $0.documentURL == nil && $0.window != nil }) {
-            folioLog("router: открываю в пустом окне")
-            WindowReport.event("router → пустое окно")
+            folioLog("router: opening in the empty window")
+            WindowReport.event("router → empty window")
             blank.open(url: url)
             WindowHygiene.scheduleBlankWindowCleanup()
             return
         }
-        // 2. Окон ещё нет — первая сцена заберёт URL при появлении.
+        // 2. No windows yet — the first scene will take the URL when it appears.
         if models.isEmpty {
-            folioLog("router: окон нет — запомнил файл для первой сцены")
-            WindowReport.event("router → ждём первую сцену")
+            folioLog("router: no windows — remembered the file for the first scene")
+            WindowReport.event("router → waiting for the first scene")
             pendingURL = url
             WindowHygiene.scheduleBlankWindowCleanup()
             return
         }
-        // 3. Есть окна с документами — открываем новое окно.
+        // 3. There are windows with documents — open a new window.
         openNewWindow(with: url)
-        // SwiftUI может создать ещё одно пустое окно в ответ на open-событие.
+        // SwiftUI may create another empty window in response to the open event.
         WindowHygiene.scheduleBlankWindowCleanup()
     }
 
     func openNewWindow(with url: URL? = nil) {
         guard let openWindowAction else {
             pendingURL = url
-            folioLog("router: нет действия openWindow — запомнил файл")
+            folioLog("router: no openWindow action — remembered the file")
             return
         }
-        WindowReport.event("router → новое окно \(url?.lastPathComponent ?? "—")")
+        WindowReport.event("router → new window \(url?.lastPathComponent ?? "—")")
         if let url {
             openWindowAction(id: ReaderScene.windowGroupID, value: url)
         } else {

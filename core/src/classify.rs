@@ -1,5 +1,5 @@
-//! Классификация элементов (CONTRACT §6): заголовки, списки, подписи, код,
-//! формулы, колонтитулы, ссылки. Только эвристики по типографике.
+//! Element classification (CONTRACT §6): headings, lists, captions, code,
+//! formulas, headers/footers, references. Typography heuristics only.
 
 use crate::json_types::{BlockKind, Zone};
 use crate::text::RawLine;
@@ -7,9 +7,9 @@ use std::collections::HashMap;
 
 #[derive(Clone, Debug, Default)]
 pub struct HeadingSignal {
-    /// 0..1, порог кандидата — 0.55.
+    /// 0..1, candidate threshold is 0.55.
     pub score: f64,
-    /// Для нумерованных заголовков: «1 Introduction» → 1, «3.1 …» → 2.
+    /// For numbered headings: «1 Introduction» → 1, «3.1 …» → 2.
     pub numbered_depth: Option<i32>,
 }
 
@@ -20,11 +20,11 @@ pub struct ClassifiedLine {
     pub heading: Option<HeadingSignal>,
 }
 
-/// Контекст документа, нужный классификации одной строки.
+/// Document context needed to classify a single line.
 pub struct ClassifyCtx {
     pub page_count: i32,
     pub body_size: f64,
-    /// Заранее вычисленные колонтитулы: (страница, нормализованный текст) → kind.
+    /// Precomputed headers/footers: (page, normalized text) → kind.
     pub header_footer: HashMap<(i32, String), BlockKind>,
 }
 
@@ -83,7 +83,7 @@ pub fn classify_line(raw: &RawLine, ctx: &ClassifyCtx) -> ClassifiedLine {
 }
 
 // ---------------------------------------------------------------------------
-// Заголовки
+// Headings
 // ---------------------------------------------------------------------------
 
 pub fn heading_signal(raw: &RawLine, ctx: &ClassifyCtx) -> Option<HeadingSignal> {
@@ -130,7 +130,7 @@ pub fn heading_signal(raw: &RawLine, ctx: &ClassifyCtx) -> Option<HeadingSignal>
     if raw.zone == Zone::Top && raw.line.bbox.y < 0.35 * raw.page_h {
         score += 0.03;
     }
-    // штрафы
+    // penalties
     let last = text.chars().last().unwrap_or(' ');
     if matches!(last, '.' | ',' | ';' | ':') {
         score -= 0.45;
@@ -170,11 +170,11 @@ fn round2(v: f64) -> f64 {
     (v * 100.0).round() / 100.0
 }
 
-/// Глубина нумерации заголовка: «1 Введение» → 1, «3.1 Encoder» → 2,
-/// «1.2.3 …» → 3, «Глава 2» → 1, «IV. …» → 1.
+/// Heading numbering depth: «1 Introduction» → 1, «3.1 Encoder» → 2,
+/// «1.2.3 …» → 3, «Chapter 2» → 1, «IV. …» → 1.
 pub fn numbering_depth(text: &str) -> Option<i32> {
     let t = text.trim_start();
-    // "1", "1.", "1.2", "1.2.3" + пробел + слово (не list "1. foo" в нижнем регистре)
+    // "1", "1.", "1.2", "1.2.3" + space + word (not a lowercase list item "1. foo")
     let mut i = 0;
     let bytes = t.as_bytes();
     while i < bytes.len() && bytes[i].is_ascii_digit() {
@@ -194,7 +194,7 @@ pub fn numbering_depth(text: &str) -> Option<i32> {
                     depth += 1;
                     j = m;
                 } else {
-                    // точка в конце номера: "1." — просто разделитель
+                    // dot at the end of the number: "1." is just a separator
                     j = k;
                     break;
                 }
@@ -202,7 +202,7 @@ pub fn numbering_depth(text: &str) -> Option<i32> {
                 break;
             }
         }
-        // после номера должен быть разделитель/конец и слово
+        // after the number there must be a separator/end and a word
         while j < bytes.len() && (bytes[j] == b'.' || bytes[j] == b')') {
             j += 1;
         }
@@ -210,7 +210,7 @@ pub fn numbering_depth(text: &str) -> Option<i32> {
         let rest = rest.trim_start();
         if !rest.is_empty() {
             let first = rest.chars().next().unwrap();
-            // После номера — слово с заглавной буквы (не «3.3 · 10» / «1. foo»).
+            // After the number comes a capitalized word (not «3.3 · 10» / «1. foo»).
             let looks_like_heading_word = first.is_alphabetic() && first.is_uppercase();
             if looks_like_heading_word && text.chars().count() <= 140 {
                 return Some(depth.min(6));
@@ -236,7 +236,7 @@ pub fn numbering_depth(text: &str) -> Option<i32> {
             }
         }
     }
-    // римские цифры: "IV. Метод" / "IV Метод"
+    // roman numerals: "IV. Method" / "IV Method"
     let mut roman = 0;
     for c in t.chars() {
         if matches!(c, 'I' | 'V' | 'X' | 'L' | 'C') {
@@ -257,8 +257,8 @@ pub fn numbering_depth(text: &str) -> Option<i32> {
     None
 }
 
-/// Типовые имена разделов: их заголовок узнаётся даже при кегле, близком к
-/// основному (жирный + известное имя).
+/// Common section names: their heading is recognized even at a font size close to
+/// the body size (bold + a known name).
 pub fn is_common_section_name(text: &str) -> bool {
     let t = text.trim().to_lowercase();
     let t = t.trim_end_matches([':', '.', ' ']).to_string();
@@ -309,7 +309,7 @@ fn centered(raw: &RawLine) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Прочие kind'ы
+// Other kinds
 // ---------------------------------------------------------------------------
 
 fn is_page_number(text: &str) -> bool {
@@ -323,11 +323,11 @@ fn is_page_number(text: &str) -> bool {
         .filter(|c| c.is_alphanumeric() || c.is_whitespace())
         .collect();
     let compact = stripped.trim();
-    // только число
+    // digits only
     if !compact.is_empty() && compact.chars().all(|c| c.is_ascii_digit()) {
         return true;
     }
-    // только римское число
+    // roman numeral only
     if !compact.is_empty()
         && compact.chars().count() <= 8
         && compact
@@ -336,7 +336,7 @@ fn is_page_number(text: &str) -> bool {
     {
         return true;
     }
-    // "стр. 3 из 15", "page 3 of 15", "- 3 -", "3 / 15"
+    // "page 3 of 15", "- 3 -", "3 / 15"
     for pfx in ["стр.", "стр", "page", "p.", "с."] {
         if lower.starts_with(pfx) && compact.chars().any(|c| c.is_ascii_digit()) {
             return true;
@@ -365,7 +365,7 @@ fn is_caption(raw: &RawLine) -> bool {
     if !PREFIXES.iter().any(|p| lower.starts_with(p)) {
         return false;
     }
-    // после префикса ожидаем номер или двоеточие
+    // after the prefix we expect a number or a colon
     let rest = &lower[PREFIXES
         .iter()
         .find(|p| lower.starts_with(**p))
@@ -414,7 +414,7 @@ fn is_list_item(raw: &RawLine) -> bool {
                 if c == '.' || c == ')' {
                     marker_end = Some(c);
                     if prev.is_ascii_digit() || prev.is_alphabetic() {
-                        // маркер — "1.", "12)", "a)"
+                        // the marker is "1.", "12)", "a)"
                     }
                     break;
                 }
@@ -429,7 +429,7 @@ fn is_list_item(raw: &RawLine) -> bool {
             }
         }
         if marker_end.is_some() && count <= 3 {
-            // следующий за маркером символ должен быть пробелом
+            // the character after the marker must be a space
             let marker_len = count + 1;
             let after: String = t.chars().skip(marker_len).take(1).collect();
             if after.chars().all(|c| c.is_whitespace()) {

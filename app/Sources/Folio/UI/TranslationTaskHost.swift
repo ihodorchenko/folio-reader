@@ -5,12 +5,12 @@ import AppKit
 import Translation
 #endif
 
-/// Невидимый хост перевода: держит `TranslationSession` живой, пока живо окно ридера.
+/// Invisible translation host: keeps the `TranslationSession` alive as long as the reader window lives.
 ///
-/// `TranslationSession` нельзя создать вручную — её выдаёт SwiftUI в `.translationTask`,
-/// поэтому запрос из AppKit-меню (контекстное меню страницы) проходит так:
-/// `TranslationController.request(...)` → счётчик `requestToken` вырос → хост запускает
-/// `.translationTask` → результат складывается обратно в контроллер → панель показывает текст.
+/// `TranslationSession` cannot be created manually — SwiftUI provides it in `.translationTask`,
+/// so a request from an AppKit menu (the page context menu) goes like this:
+/// `TranslationController.request(...)` → the `requestToken` counter grows → the host starts
+/// `.translationTask` → the result is stored back into the controller → the panel shows the text.
 struct TranslationTaskHost: View {
     let controller: TranslationController
 
@@ -24,7 +24,7 @@ struct TranslationTaskHost: View {
 }
 
 #if canImport(Translation)
-/// macOS 15+ — Translation framework доступен.
+/// macOS 15+ — the Translation framework is available.
 @available(macOS 15.0, *)
 private struct ModernTranslationTaskHost: View {
     let controller: TranslationController
@@ -48,7 +48,7 @@ private struct ModernTranslationTaskHost: View {
             }
     }
 
-    /// Создаёт конфигурацию для новой пары языков или переиспользует прежнюю через `invalidate()`.
+    /// Creates a configuration for a new language pair or reuses the previous one via `invalidate()`.
     private func schedule(_ token: Int) {
         guard token > scheduledToken else { return }
         scheduledToken = token
@@ -61,7 +61,7 @@ private struct ModernTranslationTaskHost: View {
             pairSignature = pair
             configuration = TranslationSession.Configuration(source: source, target: target)
         } else {
-            // Та же пара языков, новый текст — просим перевести заново.
+            // Same language pair, new text — ask to translate again.
             configuration?.invalidate()
         }
     }

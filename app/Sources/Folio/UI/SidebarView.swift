@@ -1,15 +1,15 @@
 import SwiftUI
 
-/// Sidebar системного ридера: переключатель вкладок + список.
+/// System reader sidebar: tab picker + list.
 struct SidebarView: View {
     let model: ReaderModel
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Раздел", selection: Binding(get: { model.sidebarMode },
+            Picker(L10n.t("Section"), selection: Binding(get: { model.sidebarMode },
                                                set: { model.sidebarMode = $0 })) {
                 ForEach(SidebarMode.allCases) { mode in
-                    Label(mode.titleRu, systemImage: mode.symbol)
+                    Label(mode.localizedTitle, systemImage: mode.symbol)
                         .labelStyle(.titleOnly)
                         .tag(mode)
                 }

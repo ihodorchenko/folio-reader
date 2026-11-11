@@ -1,11 +1,11 @@
 import AppKit
 
-/// Наполняет подменю «Файл → Открыть недавние» из `RecentDocumentsStore`.
+/// Populates the «File → Open Recent» submenu from `RecentDocumentsStore`.
 ///
-/// Почему не только SwiftUI: объявленное в `Commands` подменю строится один раз
-/// при запуске и не перестраивается при изменении списка, поэтому меню ведёт
-/// `NSMenuDelegate` — он заново собирает пункты при каждом открытии меню и по
-/// уведомлению об изменении списка (чтобы список был актуален сразу).
+/// Why not SwiftUI alone: the submenu declared in `Commands` is built once at
+/// launch and is not rebuilt when the list changes, so the menu is driven by an
+/// `NSMenuDelegate` — it rebuilds the items every time the menu opens and on the
+/// list-changed notification (so the list is current right away).
 @MainActor
 final class RecentDocumentsMenu: NSObject, NSMenuDelegate {
     static let shared = RecentDocumentsMenu()
@@ -13,9 +13,9 @@ final class RecentDocumentsMenu: NSObject, NSMenuDelegate {
     private var installTask: Task<Void, Never>?
     private var changeObserver: NSObjectProtocol?
 
-    // MARK: - Установка
+    // MARK: - Installation
 
-    /// Подписаться на изменения и найти подменю (SwiftUI строит меню после старта).
+    /// Subscribe to changes and find the submenu (SwiftUI builds the menu after launch).
     func install() {
         if changeObserver == nil {
             changeObserver = NotificationCenter.default.addObserver(
@@ -32,7 +32,7 @@ final class RecentDocumentsMenu: NSObject, NSMenuDelegate {
                 if attach() { return }
                 try? await Task.sleep(nanoseconds: 250_000_000)
             }
-            folioLog("recent: подменю «Открыть недавние» не найдено в главном меню")
+            folioLog("recent: «Open Recent» submenu not found in the main menu")
         }
     }
 
@@ -46,7 +46,7 @@ final class RecentDocumentsMenu: NSObject, NSMenuDelegate {
         return true
     }
 
-    /// Перестроить пункты немедленно (по изменению списка).
+    /// Rebuild the items immediately (when the list changes).
     func refresh() {
         if let submenu = Self.submenu() {
             if submenu.delegate !== self { submenu.delegate = self }
@@ -62,14 +62,14 @@ final class RecentDocumentsMenu: NSObject, NSMenuDelegate {
         rebuild(menu)
     }
 
-    // MARK: - Содержимое меню
+    // MARK: - Menu contents
 
     private func rebuild(_ menu: NSMenu) {
         menu.removeAllItems()
         let documents = RecentDocumentsStore.shared.documents
 
         guard !documents.isEmpty else {
-            let empty = NSMenuItem(title: "Нет недавних документов", action: nil, keyEquivalent: "")
+            let empty = NSMenuItem(title: L10n.t("No Recent Documents"), action: nil, keyEquivalent: "")
             empty.isEnabled = false
             menu.addItem(empty)
             return
@@ -86,17 +86,17 @@ final class RecentDocumentsMenu: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
-        let clear = NSMenuItem(title: "Очистить меню", action: #selector(clearRecents(_:)), keyEquivalent: "")
+        let clear = NSMenuItem(title: L10n.t("Clear Menu"), action: #selector(clearRecents(_:)), keyEquivalent: "")
         clear.target = self
         menu.addItem(clear)
     }
 
-    // MARK: - Действия
+    // MARK: - Actions
 
     @objc private func openRecent(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
-        folioLog("recent: открываю \(url.path)")
-        // Как «Открыть…»: в текущем окне; если окна нет — маршрутизатор создаст первое.
+        folioLog("recent: opening \(url.path)")
+        // Like «Open…»: in the current window; if there is no window, the router creates the first one.
         if let model = ReaderModel.active {
             model.open(url: url)
         } else {
@@ -108,13 +108,13 @@ final class RecentDocumentsMenu: NSObject, NSMenuDelegate {
         RecentDocumentsStore.shared.clear()
     }
 
-    // MARK: - Поиск подменю
+    // MARK: - Submenu lookup
 
     static func submenu() -> NSMenu? {
-        findMenu(titled: "Открыть недавние", in: NSApp.mainMenu)
+        findMenu(titled: L10n.t("Open Recent"), in: NSApp.mainMenu)
     }
 
-    /// Рекурсивный поиск подменю по заголовку пункта.
+    /// Recursively find a submenu by item title.
     static func findMenu(titled title: String, in menu: NSMenu?) -> NSMenu? {
         guard let menu else { return nil }
         for item in menu.items {

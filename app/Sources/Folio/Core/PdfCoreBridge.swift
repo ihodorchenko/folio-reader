@@ -2,9 +2,9 @@ import Foundation
 import CoreGraphics
 import Darwin
 
-// MARK: - C ABI Rust-ядра (pdfreader/CONTRACT.md, раздел 1)
-// Намеренно dlopen, а не линковка: приложение собирается и запускается даже без
-// собранного ядра (тогда UI работает на MockDocumentProvider).
+// MARK: - Rust core C ABI (pdfreader/CONTRACT.md, section 1)
+// Deliberately dlopen instead of linking: the app builds and runs even without
+// a built core (then the UI runs on MockDocumentProvider).
 
 typealias PcOpenFn = @convention(c) (UnsafePointer<CChar>?) -> OpaquePointer?
 typealias PcCloseFn = @convention(c) (OpaquePointer?) -> Void
@@ -41,7 +41,7 @@ final class CoreLibrary {
     private static var cached: CoreLibrary?
     private static let cacheLock = NSLock()
 
-    /// Ищет и загружает libpdfcore.dylib. nil — ядро не собрано/не найдено.
+    /// Locates and loads libpdfcore.dylib. nil — the core is not built/found.
     static func shared() -> CoreLibrary? {
         cacheLock.lock()
         defer { cacheLock.unlock() }
@@ -114,21 +114,21 @@ final class CoreLibrary {
         let cwd = fm.currentDirectoryPath
         let exeDir = URL(fileURLWithPath: CommandLine.arguments.first ?? "")
             .resolvingSymlinksInPath().deletingLastPathComponent().path
-        // 1. Внутри .app-бандла: Contents/MacOS, Contents/Frameworks, Contents/Resources.
-        //    Эти пути важнее cwd, иначе запуск из папки проекта подхватит dev-копию ядра.
+        // 1. Inside the .app bundle: Contents/MacOS, Contents/Frameworks, Contents/Resources.
+        //    These paths take precedence over cwd, otherwise running from the project folder picks up the dev copy of the core.
         candidates += [
             "\(exeDir)/libpdfcore.dylib",
             "\(exeDir)/../Frameworks/libpdfcore.dylib",
             "\(exeDir)/../Resources/libpdfcore.dylib",
         ]
-        // 2. Рядом с бинарником в dev-сборке SwiftPM (app/.build/.../debug/Folio).
+        // 2. Next to the binary in the SwiftPM dev build (app/.build/.../debug/Folio).
         candidates += [
             "\(exeDir)/../../../core/libpdfcore.dylib",
             "\(exeDir)/../../../target/release/libpdfcore.dylib",
             "\(exeDir)/../../../../core/target/release/libpdfcore.dylib",
             "\(exeDir)/../../../../../core/target/release/libpdfcore.dylib",
         ]
-        // 3. cwd и окрестности воркспейса.
+        // 3. cwd and the workspace surroundings.
         candidates += [
             "\(cwd)/.build/core/libpdfcore.dylib",
             "\(cwd)/app/.build/core/libpdfcore.dylib",
@@ -136,7 +136,7 @@ final class CoreLibrary {
             "\(cwd)/../core/target/release/libpdfcore.dylib",
             "\(cwd)/core/target/release/libpdfcore.dylib",
         ]
-        // путь из env-скрипта запуска
+        // path from the launch env script
         if let root = ProcessInfo.processInfo.environment["FOLIO_ROOT"] {
             candidates += [
                 "\(root)/core/target/release/libpdfcore.dylib",
@@ -145,14 +145,14 @@ final class CoreLibrary {
         }
         searchedPaths = candidates
         for path in candidates where fm.fileExists(atPath: path) {
-            // Нормализуем "…/MacOS/../Frameworks/…" — путь идёт в логи и summary.
+            // Normalize "…/MacOS/../Frameworks/…" — the path goes into logs and the summary.
             return URL(fileURLWithPath: path).standardizedFileURL.path
         }
         return nil
     }
 }
 
-// MARK: - Документ поверх ядра
+// MARK: - Document on top of the core
 
 final class PdfCoreDocument: DocumentProviding, @unchecked Sendable {
     let url: URL
@@ -181,7 +181,7 @@ final class PdfCoreDocument: DocumentProviding, @unchecked Sendable {
         self.fingerprint = Self.fingerprint(for: url)
         if pageCount <= 0 {
             lib.close(doc)
-            throw PdfCoreError.openFailed("документ без страниц")
+            throw PdfCoreError.openFailed("document has no pages")
         }
     }
 
@@ -210,7 +210,7 @@ final class PdfCoreDocument: DocumentProviding, @unchecked Sendable {
 
     func pageLayout(_ index: Int) throws -> PcPageLayout {
         guard index >= 0, index < pageCount else {
-            throw PdfCoreError.badResponse("страница \(index) вне диапазона 0..<\(pageCount)")
+            throw PdfCoreError.badResponse("page \(index) out of range 0..<\(pageCount)")
         }
         lock.lock()
         defer { lock.unlock() }
@@ -227,7 +227,7 @@ final class PdfCoreDocument: DocumentProviding, @unchecked Sendable {
         let w = lib.pageWidth(doc, Int32(index))
         let h = lib.pageHeight(doc, Int32(index))
         guard w > 0, h > 0 else {
-            throw PdfCoreError.badResponse("некорректный размер страницы \(index)")
+            throw PdfCoreError.badResponse("invalid page size \(index)")
         }
         return CGSize(width: w, height: h)
     }
@@ -248,7 +248,7 @@ final class PdfCoreDocument: DocumentProviding, @unchecked Sendable {
         guard let provider = CGDataProvider(data: data as CFData) else {
             throw PdfCoreError.badResponse("CGDataProvider")
         }
-        // Ядро отдаёт BGRA (B,G,R,A), alpha == 255.
+        // The core returns BGRA (B,G,R,A), alpha == 255.
         let bitmapInfo = CGBitmapInfo(rawValue:
             CGBitmapInfo.byteOrder32Little.rawValue |
             CGImageAlphaInfo.noneSkipFirst.rawValue)

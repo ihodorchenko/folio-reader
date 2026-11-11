@@ -30,7 +30,7 @@ and exact word boxes:
 
 ## Download
 
-Prebuilt **Folio 1.0.0** for Apple Silicon: [latest release](https://github.com/ihodorchenko/folio-reader/releases/latest)
+Prebuilt **Folio** for Apple Silicon: [latest release](https://github.com/ihodorchenko/folio-reader/releases/latest)
 → `Folio.app.zip` (~5 MB, SHA-256 published with the release).
 
 1. Unzip and move `Folio.app` to `/Applications`.
@@ -82,7 +82,12 @@ The archive is a thin **arm64** build and needs **macOS 14+**. To build from sou
 - Works even **without a built core** — falls back to a demo document and a banner, which is
   handy while developing the UI.
 
-The application UI is currently in Russian; the code, documentation and tooling are in English.
+The UI is **bilingual (English and Russian)** and follows the system language; the code, comments
+and documentation are in English. Strings live in code as English text wrapped in `L10n.t(...)` and
+are translated in [`app/Resources/ru.lproj/Localizable.strings`](app/Resources/ru.lproj/Localizable.strings);
+adding a language means adding another `<lang>.lproj` and listing it in `CFBundleLocalizations`.
+The screenshots below show the English UI — the same settings window in Russian is
+[here](docs/settings-ru.png).
 
 ---
 
@@ -353,6 +358,10 @@ setting is off, and the panel is filled with demo text.
 - `cargo test` — unit tests for grouping plus integration tests on real PDFs (28 tests).
 - The app: snapshots of `attention.pdf` at 100/150/200%, Cyrillic document, `no-text.pdf`,
   document switching (cache invalidation), dictionary path and `⌘C` — verified via logs.
+- Localization: the signed bundle is launched twice with `AppleLanguages` forced to `en` and `ru`;
+  the same acceptance run passes in both and the window report confirms localized menu titles
+  (`No Recent Documents` vs «Нет недавних документов»), with screenshots captured in both languages
+  (`docs/root.png` in English, `docs/settings-ru.png` in Russian).
 - Dictionary invocation: `--snapshot` feeds a pressure sequence `[1, 2, 2, 2, 2, 2]` and asserts
   that `showDefinition` runs exactly once, then verifies that two gestures inside the cooldown
   produce one lookup and that a press after the pause opens the panel again (the `⌘D` path is
@@ -423,10 +432,11 @@ cd core
 ├── app/                         SwiftPM app (SwiftUI + AppKit)
 │   ├── Package.swift
 │   ├── Bundle/Info.plist
+│   ├── Resources/               UI localizations (ru.lproj; English is the source language)
 │   └── Sources/Folio/
 │       ├── App/         FolioApp (menus, ⌘C/⌘D monitors), ReaderScene, WindowRouter,
 │       │                WindowHygiene, RecentDocumentsMenu, SnapshotRunner, WindowReport,
-│       │                AppDebugHooks
+│       │                AppDebugHooks, L10n
 │       ├── Model/       ReaderModel (one per window), ReadingPositionStore,
 │       │                RecentDocumentsStore, SettingsStore, SpeechService,
 │       │                TranslationController, ReaderFocus

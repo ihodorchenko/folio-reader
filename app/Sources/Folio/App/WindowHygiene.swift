@@ -1,33 +1,33 @@
 import AppKit
 
-/// Приведение количества окон к ожидаемому при запуске и открытии файлов.
+/// Brings the number of windows in line with expectations at launch and on file open.
 ///
-/// SwiftUI создаёт окно на каждое open-событие (Finder → «Открыть с помощью»),
-/// а macOS при перезапуске восстанавливает ранее открытые окна — вместе это давало
-/// «две версии приложения» вместо одной. Правила:
+/// SwiftUI creates a window for every open event (Finder → «Open With»), and on
+/// restart macOS restores previously open windows — together that produced
+/// «two copies of the app» instead of one. Rules:
 ///
-/// 1. **Запуск**: после старта остаётся ровно одно окно (с документом, если файл
-///    пришёл; иначе — пустое, в которое затем восстанавливается последняя книга).
-/// 2. **Открытие файла в работающем приложении**: лишние *пустые* окна, появившиеся
-///    как побочный эффект open-события, закрываются; окна с книгами не трогаем —
-///    каждая книга живёт в своём окне.
+/// 1. **Launch**: exactly one window remains after startup (with the document if
+///    a file arrived; otherwise an empty one, into which the last book is then restored).
+/// 2. **Opening a file in a running app**: extra *empty* windows created as a side
+///    effect of the open event are closed; windows with books are left alone —
+///    every book lives in its own window.
 @MainActor
 enum WindowHygiene {
     private static var launchCleanupScheduled = false
 
-    // MARK: - Запуск
+    // MARK: - Launch
 
-    /// Оставить одно окно после старта приложения.
+    /// Leave a single window after the app starts.
     static func scheduleLaunchCleanup() {
         guard !launchCleanupScheduled else { return }
         launchCleanupScheduled = true
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_200_000_000)
-            collapseToSingleWindow(reason: "запуск")
+            collapseToSingleWindow(reason: "launch")
         }
     }
 
-    /// Закрыть все окна ридера, кроме одного — предпочтительно с документом.
+    /// Close every reader window except one — preferably the one with a document.
     static func collapseToSingleWindow(reason: String) {
         let windows = readerWindows()
         guard windows.count > 1 else { return }
@@ -43,14 +43,14 @@ enum WindowHygiene {
             closed += 1
         }
         if closed > 0 {
-            folioLog("windows: \(reason) — закрыл лишних окон: \(closed), оставил «\(keep.title)»")
+            folioLog("windows: \(reason) — closed extra windows: \(closed), kept «\(keep.title)»")
         }
     }
 
-    // MARK: - Открытие файлов
+    // MARK: - Opening files
 
-    /// Убрать пустые окна, созданные побочным эффектом open-события.
-    /// Окна с документами не закрываются никогда: в них живут другие книги.
+    /// Remove empty windows created as a side effect of the open event.
+    /// Windows with documents are never closed: other books live in them.
     static func scheduleBlankWindowCleanup() {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 700_000_000)
@@ -69,11 +69,11 @@ enum WindowHygiene {
             closed += 1
         }
         if closed > 0 {
-            folioLog("windows: закрыл пустых окон после open-события: \(closed)")
+            folioLog("windows: closed \(closed) empty windows after the open event")
         }
     }
 
-    // MARK: - Внутреннее
+    // MARK: - Internals
 
     private static func readerWindows() -> [NSWindow] {
         NSApp.windows.filter { window in

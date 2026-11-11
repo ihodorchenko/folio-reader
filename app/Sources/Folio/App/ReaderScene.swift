@@ -1,11 +1,11 @@
 import SwiftUI
 import AppKit
 
-/// Одна сцена = одно окно = одна книга со своей моделью.
+/// One scene = one window = one book with its own model.
 ///
-/// Раньше модель была синглтоном, поэтому открытие новой книги меняло документ
-/// во всех окнах сразу. Теперь у каждого окна своя `ReaderModel`, а документ
-/// приходит из значения `WindowGroup(for: URL.self)`.
+/// The model used to be a singleton, so opening a new book changed the document
+/// in every window at once. Now every window has its own `ReaderModel`, and the
+/// document comes from the `WindowGroup(for: URL.self)` value.
 struct ReaderScene: View {
     static let windowGroupID = "reader"
 
@@ -37,7 +37,7 @@ struct ReaderScene: View {
                 }
             }
             .onAppear {
-                WindowReport.event("scene появилась: model=\(ObjectIdentifier(model)), value=\(documentURL?.lastPathComponent ?? "—"), окон=\(NSApp.windows.count)")
+                WindowReport.event("scene appeared: model=\(ObjectIdentifier(model)), value=\(documentURL?.lastPathComponent ?? "—"), windows=\(NSApp.windows.count)")
                 if SnapshotRunner.isSnapshotMode {
                     model.configureForSnapshot()
                 }

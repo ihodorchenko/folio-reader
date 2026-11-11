@@ -1,8 +1,8 @@
 import SwiftUI
 import AppKit
 
-/// Окно настроек: озвучка (по умолчанию выключена) и пара языков перевода.
-/// Всё, что здесь меняется, сразу сохраняется в `UserDefaults` через `SettingsStore`.
+/// Settings window: speech (off by default) and the translation language pair.
+/// Everything changed here is saved to `UserDefaults` immediately via `SettingsStore`.
 struct SettingsView: View {
     @Bindable var settings: SettingsStore
 
@@ -10,18 +10,18 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("Озвучка") {
-                Toggle("Озвучивать выделенный текст", isOn: $settings.speechEnabled)
-                    .help("Системный синтезатор речи (AVSpeechSynthesizer). По умолчанию выключено.")
+            Section(L10n.t("Speech")) {
+                Toggle(L10n.t("Speak selected text"), isOn: $settings.speechEnabled)
+                    .help(L10n.t("System speech synthesizer (AVSpeechSynthesizer). Off by default."))
 
-                LabeledContent("Скорость") {
+                LabeledContent(L10n.t("Rate")) {
                     HStack(spacing: 8) {
-                        Text("медленно")
+                        Text(L10n.t("slow"))
                             .font(.system(size: 10))
                             .foregroundStyle(.secondary)
                         Slider(value: $settings.speechRate, in: 0.3...0.7)
                             .frame(width: 150)
-                        Text("быстро")
+                        Text(L10n.t("fast"))
                             .font(.system(size: 10))
                             .foregroundStyle(.secondary)
                         Text(String(format: "%.2f×", settings.speechRate / 0.5))
@@ -32,18 +32,18 @@ struct SettingsView: View {
                 }
                 .disabled(!settings.speechEnabled)
 
-                LabeledContent("Голос") {
+                LabeledContent(L10n.t("Voice")) {
                     HStack(spacing: 8) {
                         Text(SpeechService.shared.defaultVoiceDescription)
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                         Spacer(minLength: 0)
-                        Button(speakingSample ? "Стоп" : "Прослушать пример") {
+                        Button(speakingSample ? L10n.t("Stop") : L10n.t("Play Sample")) {
                             if speakingSample {
                                 SpeechService.shared.stop()
                                 speakingSample = false
                             } else {
-                                let ok = SpeechService.shared.speak("Folio читает текст выделенного фрагмента.")
+                                let ok = SpeechService.shared.speak(L10n.t("Folio reads the selected text aloud."))
                                 speakingSample = ok
                             }
                         }
@@ -52,42 +52,42 @@ struct SettingsView: View {
                     }
                 }
 
-                Text("Выключено по умолчанию. Голос подбирается по языку текста; озвучка доступна из контекстного меню и по ⌥⎋.")
+                Text(L10n.t("Off by default. The voice follows the text language; speech is available from the context menu and via ⌥⎋."))
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
             }
 
-            Section("Перевод") {
-                Picker("Переводить с", selection: $settings.translateSourceID) {
+            Section(L10n.t("Translation")) {
+                Picker(L10n.t("Translate from"), selection: $settings.translateSourceID) {
                     ForEach(TranslateLanguage.sourceChoices) { language in
                         Text(language.displayName).tag(language.identifier)
                     }
                 }
-                Picker("на", selection: $settings.translateTargetID) {
+                Picker(L10n.t("to"), selection: $settings.translateTargetID) {
                     ForEach(TranslateLanguage.targetChoices) { language in
                         Text(language.displayName).tag(language.identifier)
                     }
                 }
 
                 HStack {
-                    Text("По умолчанию: \(TranslateLanguage.named(SettingsStore.defaultSourceID).displayName) → \(TranslateLanguage.named(SettingsStore.defaultTargetID).displayName)")
+                    Text(L10n.t("Default: %@ → %@", TranslateLanguage.named(SettingsStore.defaultSourceID).displayName, TranslateLanguage.named(SettingsStore.defaultTargetID).displayName))
                         .font(.system(size: 10.5))
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
-                    Button("Вернуть по умолчанию") { settings.resetTranslationPair() }
+                    Button(L10n.t("Restore Defaults")) { settings.resetTranslationPair() }
                         .controlSize(.small)
                 }
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Перевод выделения — в контекстном меню страницы и в меню «Перевод» (⌥⌘T). Выбор языков сохраняется между запусками.")
+                    Text(L10n.t("Translate Selection is in the page context menu and the “Translation” menu (⌥⌘T). The language choice persists across launches."))
                         .font(.system(size: 10.5))
                         .foregroundStyle(.secondary)
                     if #available(macOS 15.0, *) {
-                        Text("Первый перевод пары языков может скачивать системные модели. Где посмотреть: Системные настройки → Основные → Язык и регион → Языки перевода.")
+                        Text(L10n.t("The first translation of a language pair may download system models. Find them in System Settings → General → Language & Region → Translation Languages."))
                             .font(.system(size: 10.5))
                             .foregroundStyle(.secondary)
                     } else {
-                        Text("Системный перевод требует macOS 15 или новее; на этой системе пункт меню будет отключён.")
+                        Text(L10n.t("System translation requires macOS 15 or later; on this system the menu item is disabled."))
                             .font(.system(size: 10.5))
                             .foregroundStyle(.secondary)
                     }
@@ -102,10 +102,10 @@ struct SettingsView: View {
     }
 }
 
-// MARK: - Окно настроек
+// MARK: - Settings window
 
-/// Собственное окно настроек вместо `Settings`-сцены: приложение запускается и как
-/// SwiftPM-исполняемый файл (без бандла), где стандартная сцена `Settings` не открывается.
+/// Custom settings window instead of the `Settings` scene: the app also runs as a
+/// plain SwiftPM executable (no bundle), where the standard `Settings` scene does not open.
 @MainActor
 final class SettingsWindow {
     static let shared = SettingsWindow()
@@ -116,7 +116,7 @@ final class SettingsWindow {
         if let window {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
-            folioLog("settings: окно настроек поднято")
+            folioLog("settings: settings window raised")
             return
         }
         let root = SettingsView(settings: SettingsStore.shared)
@@ -129,7 +129,7 @@ final class SettingsWindow {
             backing: .buffered,
             defer: false
         )
-        window.title = "Настройки Folio"
+        window.title = L10n.t("Folio Settings")
         window.contentView = hosting
         window.isReleasedWhenClosed = false
         window.center()
@@ -137,6 +137,6 @@ final class SettingsWindow {
         self.window = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        folioLog("settings: окно настроек открыто (озвучка=\(SettingsStore.shared.speechEnabled ? "вкл" : "выкл"), пара=\(SettingsStore.shared.translationPairTitle))")
+        folioLog("settings: settings window opened (speech=\(SettingsStore.shared.speechEnabled ? "on" : "off"), pair=\(SettingsStore.shared.translationPairTitle))")
     }
 }

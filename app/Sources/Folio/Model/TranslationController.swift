@@ -2,11 +2,11 @@ import AppKit
 import Foundation
 import Observation
 
-/// Состояние перевода выделенного фрагмента.
+/// State of the translation of a selected fragment.
 ///
-/// Сама `TranslationSession` создаётся только SwiftUI (`.translationTask`), поэтому
-/// контроллер хранит лишь «что и когда переводить» и результат. Так модель остаётся
-/// доступной и на macOS 14, где Translation framework ещё нет.
+/// The `TranslationSession` itself is created only by SwiftUI (`.translationTask`), so the
+/// controller stores just "what and when to translate" and the result. That keeps the model
+/// usable on macOS 14 as well, where the Translation framework does not exist yet.
 @Observable
 @MainActor
 final class TranslationController {
@@ -17,22 +17,22 @@ final class TranslationController {
         case failed(String)
     }
 
-    /// Текущая фаза перевода.
+    /// Current translation phase.
     private(set) var phase: Phase = .idle
-    /// Исходный текст запроса.
+    /// Source text of the request.
     private(set) var sourceText = ""
-    /// Перевод (когда `phase == .done`).
+    /// Translation (when `phase == .done`).
     private(set) var translatedText = ""
-    /// Языковая пара конкретного запроса (снимок настроек на момент запуска).
+    /// Language pair of this particular request (settings snapshot taken at launch).
     private(set) var sourceLanguageID = ""
     private(set) var targetLanguageID = ""
-    /// Инкрементируется на каждый запрос — по нему хоcт запускает `.translationTask`.
+    /// Incremented on every request — the host uses it to start `.translationTask`.
     private(set) var requestToken = 0
-    /// Показывать ли панель перевода.
+    /// Whether the translation panel is shown.
     var isPanelPresented = false
-    /// Заголовок панели: «Перевод слова» / «Перевод выделения».
-    private(set) var requestOrigin = "выделения"
-    /// Дополнительная подсказка под ошибкой (что делать).
+    /// What the request was made for: "word" / "selection" (the panel title is built from it).
+    private(set) var requestOrigin = "selection"
+    /// Extra hint under the error (what to do).
     private(set) var failureHint: String?
 
     var sourceLanguage: TranslateLanguage { TranslateLanguage.named(sourceLanguageID) }
@@ -42,14 +42,14 @@ final class TranslationController {
     var canRetry: Bool { !sourceText.isEmpty }
     var isWorking: Bool { phase == .working }
 
-    // MARK: - Запрос
+    // MARK: - Request
 
-    /// Новый запрос перевода. Пара языков фиксируется в запросе, чтобы смена
-    /// настроек не «переехала» в уже запущенный перевод.
-    func request(text: String, sourceID: String, targetID: String, origin: String = "выделения") {
+    /// New translation request. The language pair is captured in the request so that a settings
+    /// change does not "move into" an already running translation.
+    func request(text: String, sourceID: String, targetID: String, origin: String = "selection") {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            folioLog("translate: пустой текст — переводить нечего")
+            folioLog("translate: empty text — nothing to translate")
             NSSound.beep()
             return
         }
@@ -62,10 +62,10 @@ final class TranslationController {
         phase = .working
         isPanelPresented = true
         requestToken += 1
-        folioLog("translate: запрос #\(requestToken) «\(String(trimmed.prefix(60)))» \(pairTitle), символов \(trimmed.count)")
+        folioLog("translate: request #\(requestToken) \"\(String(trimmed.prefix(60)))\" \(pairTitle), \(trimmed.count) characters")
     }
 
-    /// Повторить перевод текущего текста с актуальной парой из настроек.
+    /// Retry translating the current text with the current pair from settings.
     func retry() {
         guard canRetry else { return }
         let settings = SettingsStore.shared
@@ -75,74 +75,74 @@ final class TranslationController {
                 origin: requestOrigin)
     }
 
-    // MARK: - Результаты (вызывает хоcт `.translationTask`)
+    // MARK: - Results (called by the `.translationTask` host)
 
     func complete(_ text: String) {
         translatedText = text
         phase = .done
-        folioLog("translate: готово, символов \(text.count)")
+        folioLog("translate: done, \(text.count) characters")
     }
 
     func fail(_ error: Error) {
         let message = Self.describe(error)
         failureHint = Self.hint(for: error)
         phase = .failed(message)
-        folioLog("translate: ОШИБКА \(message)")
+        folioLog("translate: ERROR \(message)")
     }
 
     func cancel() {
         guard phase == .working else { return }
         phase = .idle
-        folioLog("translate: отменено")
+        folioLog("translate: cancelled")
     }
 
-    /// Система без Translation framework (macOS < 15): показываем пояснение вместо перевода.
+    /// System without the Translation framework (macOS < 15): show an explanation instead of a translation.
     func unavailableOnThisSystem() {
         sourceText = ""
         translatedText = ""
         sourceLanguageID = SettingsStore.shared.translateSourceID
         targetLanguageID = SettingsStore.shared.translateTargetID
-        requestOrigin = "выделения"
-        phase = .failed("Системный перевод требует macOS 15 или новее")
-        failureHint = "На этой версии macOS доступны словарь и озвучка — переводить нечем."
+        requestOrigin = "selection"
+        phase = .failed(L10n.t("System translation requires macOS 15 or later"))
+        failureHint = L10n.t("On this version of macOS only the dictionary and speech are available — there is no translation.")
         isPanelPresented = true
-        folioLog("translate: система без Translation framework — показываю пояснение")
+        folioLog("translate: system without the Translation framework — showing an explanation")
     }
 
-    // MARK: - Диагностика ошибок
+    // MARK: - Error diagnostics
 
     static func describe(_ error: Error) -> String {
         if let cocoa = error as? CocoaError, cocoa.code == .userCancelled {
-            return "Загрузка языковых моделей отменена"
+            return L10n.t("Language model download cancelled")
         }
         let nsError = error as NSError
         if nsError.domain == NSURLErrorDomain {
-            return "Сеть недоступна (\(nsError.code)): модели перевода не скачались"
+            return L10n.t("No network (%ld): translation models weren't downloaded", nsError.code)
         }
         let text = error.localizedDescription
-        return text.isEmpty ? "Не удалось перевести текст" : text
+        return text.isEmpty ? L10n.t("Couldn't translate the text") : text
     }
 
-    /// Подсказка по типичным причинам отказа — нужна, чтобы пользователь знал, где искать.
+    /// Hint for the typical failure causes — so the user knows where to look.
     static func hint(for error: Error) -> String? {
         if let cocoa = error as? CocoaError, cocoa.code == .userCancelled {
-            return "Языковые модели можно скачать позже: ⌘, → Перевод."
+            return L10n.t("Language models can be downloaded later: ⌘, → Translation.")
         }
-        return "Нужны языковые модели: Системные настройки → Основные → Язык и регион → Языки перевода."
+        return L10n.t("Language models are required: System Settings → General → Language & Region → Translation Languages.")
     }
 
-    // MARK: - Снапшот-приёмка
+    // MARK: - Snapshot acceptance
 
-    /// Подставить результат без сети — только для headless-снапшотов UI.
+    /// Inject a result without the network — for headless UI snapshots only.
     func debugInjectResult(source: String, translated: String, sourceID: String, targetID: String) {
         sourceText = source
         translatedText = translated
         sourceLanguageID = sourceID
         targetLanguageID = targetID
-        requestOrigin = "выделения"
+        requestOrigin = "selection"
         failureHint = nil
         phase = .done
         isPanelPresented = true
-        folioLog("translate: снапшот — подставлен результат \(TranslateLanguage.named(sourceID).displayName) → \(TranslateLanguage.named(targetID).displayName)")
+        folioLog("translate: snapshot — injected result \(TranslateLanguage.named(sourceID).displayName) → \(TranslateLanguage.named(targetID).displayName)")
     }
 }

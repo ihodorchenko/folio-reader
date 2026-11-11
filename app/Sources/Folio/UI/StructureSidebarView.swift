@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Дерево структуры документа: заголовки с уровнями и переход по клику.
+/// Document structure tree: headings with levels, click to jump.
 struct StructureSidebarView: View {
     let model: ReaderModel
 
@@ -8,7 +8,7 @@ struct StructureSidebarView: View {
         Group {
             if model.headingRows.isEmpty {
                 if model.isLoading || model.doc == nil {
-                    ProgressView("Загрузка структуры…")
+                    ProgressView(L10n.t("Loading structure…"))
                         .controlSize(.small)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
@@ -29,7 +29,7 @@ struct StructureSidebarView: View {
         }
     }
 
-    // MARK: - Строка дерева
+    // MARK: - Tree row
 
     private func rowView(_ row: HeadingRow) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -55,7 +55,7 @@ struct StructureSidebarView: View {
         row.level == 1 ? "h.square" : "text.alignleft"
     }
 
-    // MARK: - Binding выбора
+    // MARK: - Selection binding
 
     private var selectionBinding: Binding<String?> {
         Binding(get: { model.selectedHeadingID },
@@ -63,7 +63,7 @@ struct StructureSidebarView: View {
                     model.selectedHeadingID = newValue
                     guard let id = newValue,
                           let row = model.headingRows.first(where: { $0.id == id }) else { return }
-                    folioLog("sidebar: переход к заголовку «\(row.title)» (стр. \(row.page + 1))")
+                    folioLog("sidebar: jump to heading “\(row.title)” (p. \(row.page + 1))")
                     model.scrollTo(page: row.page, bbox: row.bbox)
                 })
     }
@@ -72,8 +72,8 @@ struct StructureSidebarView: View {
         HStack(spacing: 6) {
             Image(systemName: model.structure?.tagged == true ? "checkmark.seal" : "wand.and.stars")
             Text(model.structure?.tagged == true
-                 ? "tagged PDF: уровни из /StructTreeRoot"
-                 : "уровни по эвристике: размер и насыщенность")
+                 ? L10n.t("tagged PDF: levels from /StructTreeRoot")
+                 : L10n.t("levels from heuristics: size and font weight"))
             Spacer()
             Text("\(model.headingRows.count)")
         }
@@ -89,9 +89,9 @@ struct StructureSidebarView: View {
             Image(systemName: "text.alignleft")
                 .font(.system(size: 30, weight: .light))
                 .foregroundStyle(.tertiary)
-            Text("Заголовки не найдены")
+            Text(L10n.t("No Headings Found"))
                 .font(.callout.weight(.medium))
-            Text("В документе нет заголовков или текстового слоя.\nПопробуйте вкладку «Страницы».")
+            Text(L10n.t("The document has no headings or text layer.\nTry the “Pages” tab."))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

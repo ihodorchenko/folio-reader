@@ -1,14 +1,14 @@
 import AppKit
 import SwiftUI
 
-/// Headless-режим для приёмки без разрешения Screen Recording:
+/// Headless mode for acceptance without the Screen Recording permission:
 ///
 ///     Folio --snapshot <outdir> [pdf] [--snapshot-dictionary] [--snapshot-debug]
-///                    [--snapshot-translate]   # реальный системный перевод (нужны модели языка)
+///                    [--snapshot-translate]   # real system translation (language models required)
 ///
-/// Открывает документ в настоящем окне SwiftUI (чтобы отрисовался unified toolbar),
-/// ждёт загрузки страниц и сохраняет PNG в `<outdir>`. Затем прогоняет самотесты:
-/// словарь (тот же путь, что force click stage 2 / ⌘D) и копирование (⌘C).
+/// Opens the document in a real SwiftUI window (so the unified toolbar renders),
+/// waits for the pages to load and saves PNGs to `<outdir>`. Then runs self-tests:
+/// the dictionary (the same path as force click stage 2 / ⌘D) and copying (⌘C).
 @MainActor
 enum SnapshotRunner {
     static let isSnapshotMode: Bool = CommandLine.arguments.contains("--snapshot")
@@ -18,17 +18,17 @@ enum SnapshotRunner {
         var pdf: URL
         var width: CGFloat = 1280
         var height: CGFloat = 900
-        /// nil — режим «по размеру ширины» (fit width); иначе фиксированный зум (1.0 = 100%).
+        /// nil — fit-width mode; otherwise a fixed zoom (1.0 = 100%).
         var zoom: Double?
-        /// Второй документ: проверка инвалидации кэша при смене файла.
+        /// Second document: checks cache invalidation when the file changes.
         var switchPdf: URL?
-        /// Реальный системный перевод (нужны скачанные языковые модели), а не заглушка.
+        /// Real system translation (downloaded language models required), not a stub.
         var liveTranslation: Bool = false
-        /// Реальная озвучка через AVSpeechSynthesizer (в headless-среде будет тишина).
+        /// Real speech through AVSpeechSynthesizer (silent in a headless environment).
         var liveSpeech: Bool = false
     }
 
-    // MARK: - Разбор аргументов
+    // MARK: - Argument parsing
 
     static func parseOptions() -> Options? {
         let args = CommandLine.arguments
@@ -109,42 +109,42 @@ enum SnapshotRunner {
         return URL(fileURLWithPath: "demo.pdf")
     }
 
-    // MARK: - Запуск
+    // MARK: - Run
 
-    // Не возвращается, но объявлена как Void: Swift 6.0 иначе конфликтует по T
-    // в MainActor.assumeIsolated { ... } на месте вызова.
+    // Never returns, but is declared as Void: otherwise Swift 6.0 conflicts over T
+    // in MainActor.assumeIsolated { ... } at the call site.
     static func runAndExit() {
         guard let options = parseOptions() else {
-            folioLog("snapshot: не удалось разобрать аргументы")
+            folioLog("snapshot: failed to parse arguments")
             exit(2)
         }
-        // Диагностика: если на выходе всё-таки случится NSException, увидим причину.
+        // Diagnostics: if an NSException still happens on exit, we will see why.
         NSSetUncaughtExceptionHandler { exception in
             folioLog("snapshot: NSException \(exception.name.rawValue): \(exception.reason ?? "—")")
             folioLog("snapshot: stack: \(exception.callStackSymbols.prefix(12).joined(separator: " | "))")
             fflush(stderr)
         }
-        // Страховка от зависания: снапшот обязан завершиться.
+        // Hang guard: the snapshot must finish.
         DispatchQueue.main.asyncAfter(deadline: .now() + 60) {
-            folioLog("snapshot: WATCHDOG — принудительное завершение (код 3)")
+            folioLog("snapshot: WATCHDOG — forcing exit (code 3)")
             exit(3)
         }
 
         try? FileManager.default.createDirectory(at: options.outDir, withIntermediateDirectories: true)
-        let coreVersion = CoreLibrary.shared()?.versionString ?? "нет (мок)"
+        let coreVersion = CoreLibrary.shared()?.versionString ?? "none (mock)"
         let corePath = CoreLibrary.locateDylib() ?? "—"
-        folioLog("snapshot: старт. out=\(options.outDir.path), pdf=\(options.pdf.path), ядро=\(coreVersion), dylib=\(corePath)")
+        folioLog("snapshot: start. out=\(options.outDir.path), pdf=\(options.pdf.path), core=\(coreVersion), dylib=\(corePath)")
 
         RenderStore.shared.synchronous = true
 
         guard let window = waitForMainWindow(timeout: 20) else {
-            folioLog("snapshot: ОКНО НЕ ПОЯВИЛОСЬ")
-            try? "error: окно не создано\n".write(to: options.outDir.appendingPathComponent("summary.txt"),
-                                               atomically: true, encoding: .utf8)
+            folioLog("snapshot: WINDOW DID NOT APPEAR")
+            try? "error: window not created\n".write(to: options.outDir.appendingPathComponent("summary.txt"),
+                                                    atomically: true, encoding: .utf8)
             exit(4)
         }
         guard let model = ReaderModel.registry.allObjects.first else {
-            folioLog("snapshot: ОШИБКА — модель ридера не создалась")
+            folioLog("snapshot: ERROR — the reader model was not created")
             exit(5)
         }
         model.configureForSnapshot()
@@ -157,10 +157,10 @@ enum SnapshotRunner {
         NSApp.activate(ignoringOtherApps: true)
         pump(0.5)
         model.backingScale = window.backingScaleFactor
-        folioLog("snapshot: окно \(Int(window.frame.width))×\(Int(window.frame.height)) px, backingScale=\(window.backingScaleFactor)")
+        folioLog("snapshot: window \(Int(window.frame.width))×\(Int(window.frame.height)) px, backingScale=\(window.backingScaleFactor)")
         WindowChrome.suppressSoon()
         pump(0.4)
-        logToolbar(window: window, label: "после чистки хрома")
+        logToolbar(window: window, label: "after chrome cleanup")
 
         model.open(url: options.pdf)
         let ready = waitUntil(timeout: 25) { model.snapshotReady }
@@ -169,45 +169,45 @@ enum SnapshotRunner {
         } else {
             model.applyFitWidth()
         }
-        folioLog("snapshot: документ готов=\(ready); страниц=\(model.pageCount); заголовков=\(model.headingRows.count); зум=\(String(format: "%.2f", model.zoom)); mock=\(model.isMock)")
+        folioLog("snapshot: document ready=\(ready); pages=\(model.pageCount); headings=\(model.headingRows.count); zoom=\(String(format: "%.2f", model.zoom)); mock=\(model.isMock)")
         if !PdfCore.isMockMode && model.isMock {
-            folioLog("snapshot: ВНИМАНИЕ — dylib найден, но документ открылся мок-провайдером (проверьте лог open)")
+            folioLog("snapshot: WARNING — dylib found, but the document was opened by the mock provider (check the open log)")
         }
         logPageCountConsistency(model: model, label: "attention")
         pump(0.8)
 
-        // Убеждаемся, что layout видимых страниц загружен (нужен для debug-оверлея
-        // и для word-боксов: без него оверлей просто не нарисуется).
+        // Make sure the layout of the visible pages is loaded (needed for the debug
+        // overlay and for word boxes: without it the overlay simply won't draw).
         let visibleLayoutCount = min(3, model.pageCount)
         for page in 0..<visibleLayoutCount { model.requestLayout(page) }
         let layoutsReady = waitUntil(timeout: 15) {
             (0..<visibleLayoutCount).allSatisfy { model.pageLayouts[$0] != nil }
         }
-        folioLog("snapshot: layout видимых страниц готов=\(layoutsReady) (\(model.pageLayouts.count) шт.)")
+        folioLog("snapshot: visible page layout ready=\(layoutsReady) (\(model.pageLayouts.count) items)")
         pump(0.5)
         forceLayout(window)
 
-        // 1. Основной вид
+        // 1. Main view
         capture(window: window, name: "root.png", options: options)
 
-        // 2. Debug-разметка блоков
+        // 2. Block debug overlay
         model.setDebugMode(.blocks)
         pump(0.6)
         forceLayout(window)
         capture(window: window, name: "debug.png", options: options)
 
-        // 3. Рамки каждого слова — проверка совпадения оверлея с глифами
+        // 3. Boxes around every word — verify the overlay aligns with the glyphs
         model.setDebugMode(.words)
         pump(0.5)
         forceLayout(window)
         capture(window: window, name: "debug-words.png", options: options)
 
-        // Дальше снимаем без разметки — чище для ревью.
+        // From here on we capture without overlays — cleaner for review.
         model.setDebugMode(.off)
         pump(0.35)
         forceLayout(window)
 
-        // 4. Свёрнутая боковая панель
+        // 4. Collapsed sidebar
         model.columnVisibility = .detailOnly
         pump(0.6)
         forceLayout(window)
@@ -216,32 +216,32 @@ enum SnapshotRunner {
         pump(0.5)
         forceLayout(window)
 
-        // 5. Вкладки sidebar
+        // 5. Sidebar tabs
         model.sidebarMode = .thumbnails
         pump(1.5)
         forceLayout(window)
         capture(window: window, name: "thumbnails.png", options: options)
 
         model.sidebarMode = .search
-        model.searchQuery = model.isMock ? "документ" : "attention"
+        model.searchQuery = model.isMock ? "PDF" : "attention"
         model.scheduleSearch()
         pump(2.0)
         forceLayout(window)
         capture(window: window, name: "search.png", options: options)
 
-        // 6. Возврат к структуре + переход по заголовку
+        // 6. Back to structure + jump to a heading
         model.sidebarMode = .structure
         model.searchQuery = ""
         model.scheduleSearch()
         if let heading = model.headingRows.last, model.headingRows.count > 1 {
-            folioLog("snapshot: переход к заголовку «\(heading.title)» (стр. \(heading.page + 1))")
+            folioLog("snapshot: jumping to heading «\(heading.title)» (page \(heading.page + 1))")
             model.scrollTo(page: heading.page, bbox: heading.bbox)
             pump(0.8)
             forceLayout(window)
             capture(window: window, name: "scroll.png", options: options)
         }
 
-        // 7. Тёмная тема
+        // 7. Dark theme
         window.appearance = NSAppearance(named: .darkAqua)
         NSApp.appearance = NSAppearance(named: .darkAqua)
         pump(0.7)
@@ -255,34 +255,34 @@ enum SnapshotRunner {
         pump(0.6)
         forceLayout(window)
 
-        // 6. Самотесты словаря и копирования
+        // 6. Dictionary and copy self-tests
         runInteractionSelfTests(model: model, window: window, options: options)
 
-        // 6b. Настройки, озвучка, перевод: значения по умолчанию, персистентность, меню
+        // 6b. Settings, speech, translation: defaults, persistence, menus
         runFeatureSelfTests(model: model, window: window, options: options)
 
-        // Проверка инвалидации кэша при смене документа
+        // Cache invalidation check when the document changes
         if let switchPdf = options.switchPdf {
             runDocumentSwitchTest(model: model, window: window, options: options, nextPdf: switchPdf)
         }
 
-        logToolbar(window: window, label: "финал")
+        logToolbar(window: window, label: "final")
         writeSummary(model: model, options: options, extra: [:])
-        folioLog("snapshot: ФАЙЛЫ В \(options.outDir.path): \(listFiles(options.outDir).joined(separator: ", "))")
-        folioLog("snapshot: готово, чистый выход с кодом 0")
+        folioLog("snapshot: FILES IN \(options.outDir.path): \(listFiles(options.outDir).joined(separator: ", "))")
+        folioLog("snapshot: done, clean exit with code 0")
         fflush(stdout)
         fflush(stderr)
-        // _exit — намеренно: обычный exit(0) запускает teardown AppKit/SwiftUI
-        // (NSHostingView/NSWindow/словарная панель) и иногда падает с NSException.
+        // _exit is intentional: a regular exit(0) runs AppKit/SwiftUI teardown
+        // (NSHostingView/NSWindow/dictionary panel) and sometimes crashes with an NSException.
         _exit(0)
     }
 
     private static func runInteractionSelfTests(model: ReaderModel, window: NSWindow, options: Options) {
         guard let pageView = findPageView(in: window, page: 0) else {
-            folioLog("snapshot: НЕ НАЙДЕН PageCanvasView страницы 1 — самотесты пропущены")
+            folioLog("snapshot: page 1 PageCanvasView NOT FOUND — self-tests skipped")
             return
         }
-        folioLog("snapshot: найден PageCanvasView страницы 1; проверяем словарь и копирование")
+        folioLog("snapshot: found the page 1 PageCanvasView; checking the dictionary and copying")
         pageView.debugTriggerForceClickPath()
         pump(0.3)
 
@@ -292,136 +292,138 @@ enum SnapshotRunner {
         forceLayout(window)
         capture(window: window, name: "selection.png", options: options)
 
-        // Force Touch шлёт несколько событий stage 2 подряд — словарь должен открыться один раз.
+        // Force Touch sends several stage 2 events in a row — the dictionary must open once.
         pageView.debugResetLookUpState()
         pageView.debugFeedPressureStages([1, 2, 2, 2, 2, 2])
         let singleGestureCalls = pageView.lookUpCallCount
-        folioLog("snapshot: сила нажатия (1,2,2,2,2,2) — вызовов словаря=\(singleGestureCalls) (ожидаем 1)")
+        folioLog("snapshot: pressure stages (1,2,2,2,2,2) — dictionary calls=\(singleGestureCalls) (expected 1)")
         if singleGestureCalls != 1 {
-            folioLog("snapshot: ОШИБКА — повторные stage 2 открывают словарь несколько раз")
+            folioLog("snapshot: ERROR — repeated stage 2 opens the dictionary more than once")
         }
 
-        // Два жеста подряд в пределах кулдауна не должны перезагружать панель.
+        // Two gestures in a row within the cooldown must not reload the panel.
         pageView.debugResetLookUpState()
         pageView.debugFeedPressureStages([1, 2])
         pageView.debugFeedPressureStages([1, 2])
-        folioLog("snapshot: два жеста подряд — вызовов=\(pageView.lookUpCallCount) (ожидаем 1, кулдаун \(PageCanvasView.lookUpCooldown) с)")
+        folioLog("snapshot: two gestures in a row — calls=\(pageView.lookUpCallCount) (expected 1, cooldown \(PageCanvasView.lookUpCooldown) s)")
         if pageView.lookUpCallCount != 1 {
-            folioLog("snapshot: ОШИБКА — кулдаун словаря не сработал")
+            folioLog("snapshot: ERROR — the dictionary cooldown did not work")
         }
         pump(PageCanvasView.lookUpCooldown + 0.25)
         pageView.debugFeedPressureStages([1, 2])
-        folioLog("snapshot: после паузы — вызовов=\(pageView.lookUpCallCount) (ожидаем 2)")
+        folioLog("snapshot: after the pause — calls=\(pageView.lookUpCallCount) (expected 2)")
         if pageView.lookUpCallCount != 2 {
-            folioLog("snapshot: ОШИБКА — после паузы словарь не открылся")
+            folioLog("snapshot: ERROR — the dictionary did not open after the pause")
         }
 
-        // ⌘D при наличии выделения должен взять слово из выделения, а не из hover.
-        // Даём кулдауну словаря истечь, иначе ⌘D-проверка будет троттлиться.
+        // ⌘D with a selection must take the word from the selection, not from hover.
+        // Let the dictionary cooldown expire, otherwise the ⌘D check gets throttled.
         pump(PageCanvasView.lookUpCooldown + 0.25)
         PageCanvasView.active = pageView
-        folioLog("snapshot: проверяем ⌘D при выделении (ожидаем слово из выделения, source=selection)")
+        folioLog("snapshot: checking ⌘D with a selection (expected: a word from the selection, source=selection)")
         model.performLookUp()
         pump(0.3)
-        pageView.copy(nil) // тот же путь, что ⌘C через responder chain
+        pageView.copy(nil) // the same path as ⌘C through the responder chain
         pump(0.15)
-        let pasted = NSPasteboard.general.string(forType: .string) ?? "<пусто>"
-        folioLog("snapshot: в буфере обмена после copy: «\(String(pasted.prefix(140)))»")
+        let pasted = NSPasteboard.general.string(forType: .string) ?? "<empty>"
+        folioLog("snapshot: pasteboard after copy: «\(String(pasted.prefix(140)))»")
     }
 
-    // MARK: - Самотесты настроек, озвучки и перевода
+    // MARK: - Settings, speech and translation self-tests
 
-    /// Проверяет продуктовые требования без интерактивного участия:
-    /// озвучка выключена по умолчанию, пара EN(US)→RU, изменение выбора переживает
-    /// «перезапуск», в контекстном меню есть словарь/перевод/озвучка/настройки.
+    /// Checks product requirements without interactive input:
+    /// speech is off by default, the pair is EN(US)→RU, a changed selection survives
+    /// a «restart», and the context menu has dictionary/translation/speech/settings.
     private static func runFeatureSelfTests(model: ReaderModel, window: NSWindow, options: Options) {
         let settings = model.settings
-        folioLog("snapshot: настройки — озвучка=\(settings.speechEnabled ? "вкл" : "выкл"), пара=\(settings.translationPairTitle), скорость=\(String(format: "%.2f", settings.speechRate))")
+        folioLog("snapshot: settings — speech=\(settings.speechEnabled ? "on" : "off"), pair=\(settings.translationPairTitle), rate=\(String(format: "%.2f", settings.speechRate))")
 
-        // Значения по умолчанию и персистентность — на отдельном suite,
-        // чтобы не менять настройки пользователя этого Mac.
+        // Defaults and persistence — on a separate suite,
+        // so we don't change the settings of this Mac's user.
         let suiteName = "Folio.snapshot.settings"
         guard let suite = UserDefaults(suiteName: suiteName) else {
-            folioLog("snapshot: ОШИБКА — не удалось создать временный UserDefaults suite")
+            folioLog("snapshot: ERROR — could not create the temporary UserDefaults suite")
             return
         }
         suite.removePersistentDomain(forName: suiteName)
 
         let fresh = SettingsStore(defaults: suite)
-        folioLog("snapshot: по умолчанию — озвучка=\(fresh.speechEnabled), пара=\(fresh.translationPairTitle)")
+        folioLog("snapshot: defaults — speech=\(fresh.speechEnabled), pair=\(fresh.translationPairTitle)")
         if fresh.speechEnabled {
-            folioLog("snapshot: ОШИБКА — озвучка должна быть выключена по умолчанию")
+            folioLog("snapshot: ERROR — speech must be off by default")
         }
         if fresh.translateSourceID != SettingsStore.defaultSourceID
             || fresh.translateTargetID != SettingsStore.defaultTargetID {
-            folioLog("snapshot: ОШИБКА — пара по умолчанию \(fresh.translationPairTitle), ожидали EN(US)→RU")
+            folioLog("snapshot: ERROR — default pair \(fresh.translationPairTitle), expected EN(US)→RU")
         }
 
-        // Пользователь изменил выбор — он должен сохраниться.
+        // The user changed the selection — it must be saved.
         fresh.translateSourceID = "en-GB"
         fresh.translateTargetID = "de-DE"
         fresh.speechEnabled = true
         fresh.speechRate = 0.42
         let reopened = SettingsStore(defaults: suite)
         let saved = reopened.reloadFromDisk()
-        folioLog("snapshot: после изменения и повторного открытия — источник=\(saved.source), цель=\(saved.target), озвучка=\(saved.speechEnabled), скорость=\(String(format: "%.2f", saved.speechRate))")
+        folioLog("snapshot: after change and reopen — source=\(saved.source), target=\(saved.target), speech=\(saved.speechEnabled), rate=\(String(format: "%.2f", saved.speechRate))")
         if saved.source != "en-GB" || saved.target != "de-DE"
             || !saved.speechEnabled || abs(saved.speechRate - 0.42) > 0.001 {
-            folioLog("snapshot: ОШИБКА — выбор пользователя не сохранился")
+            folioLog("snapshot: ERROR — the user's selection was not saved")
         }
         suite.removePersistentDomain(forName: suiteName)
-        folioLog("snapshot: проверка сохранения выбора языков завершена")
+        folioLog("snapshot: language selection persistence check finished")
 
-        // Выключенная озвучка не должна читать текст.
+        // Disabled speech must not read anything.
         let originalSpeechEnabled = settings.speechEnabled
         settings.speechEnabled = false
         let blocked = model.speech.speak("snapshot speech guard")
-        folioLog("snapshot: speak() при выключенном флаге = \(blocked) (ожидаем false)")
+        folioLog("snapshot: speak() with the flag off = \(blocked) (expected false)")
         if blocked {
-            folioLog("snapshot: ОШИБКА — озвучка сработала при выключенном флаге")
+            folioLog("snapshot: ERROR — speech ran while the flag was off")
         }
-        folioLog("snapshot: системных голосов \(model.speech.availableVoices.count), по умолчанию: \(model.speech.defaultVoiceDescription)")
+        folioLog("snapshot: system voices \(model.speech.availableVoices.count), default: \(model.speech.defaultVoiceDescription)")
 
-        // Реальная озвучка — только по флагу: в обычном прогоне не шумим звуком.
+        // Real speech only with the flag: a normal run does not make noise.
         if options.liveSpeech {
             settings.speechEnabled = true
-            let started = model.speech.speak("Folio. Проверка озвучки выделенного текста.")
-            folioLog("snapshot: озвучка started=\(started), isSpeaking=\(model.speech.isSpeaking)")
+            let started = model.speech.speak("Folio. Speech check for the selected text.")
+            folioLog("snapshot: speech started=\(started), isSpeaking=\(model.speech.isSpeaking)")
             pump(1.5)
-            folioLog("snapshot: озвучка во время чтения isSpeaking=\(model.speech.isSpeaking)")
+            folioLog("snapshot: speech while reading isSpeaking=\(model.speech.isSpeaking)")
             model.speech.stop()
             pump(0.3)
-            folioLog("snapshot: озвучка остановлена isSpeaking=\(model.speech.isSpeaking)")
+            folioLog("snapshot: speech stopped isSpeaking=\(model.speech.isSpeaking)")
         }
         settings.speechEnabled = originalSpeechEnabled
 
-        // Гонка prefetch/render: страница, запрошенная во время префетча, должна
-        // получить картинку через колбэк, а не остаться белой.
+        // Prefetch/render race: a page requested during prefetch must receive
+        // its image through the callback instead of staying white.
         if let doc = model.doc {
             RenderStore.shared.synchronous = false
             let scale = 1.5
+            // Pick a page that exists in this document (the Russian sample has only 3 pages).
+            let testPage = max(0, min(1, model.pageCount - 1))
             let prefix = "race-test:\(UUID().uuidString)"
-            RenderStore.shared.prefetch(page: 3, scale: scale, provider: doc, prefix: prefix)
+            RenderStore.shared.prefetch(page: testPage, scale: scale, provider: doc, prefix: prefix)
             var receivedSize: CGSize?
-            RenderStore.shared.image(page: 3, scale: scale, provider: doc, prefix: prefix) { image in
+            RenderStore.shared.image(page: testPage, scale: scale, provider: doc, prefix: prefix) { image in
                 receivedSize = image.map { CGSize(width: $0.width, height: $0.height) }
             }
             let gotImage = waitUntil(timeout: 6) { receivedSize != nil }
-            folioLog("snapshot: гонка prefetch/render — картинка получена=\(gotImage), размер=\(String(describing: receivedSize))")
+            folioLog("snapshot: prefetch/render race — image received=\(gotImage), size=\(String(describing: receivedSize))")
             if !gotImage {
-                folioLog("snapshot: ОШИБКА — страница, запрошенная во время prefetch, не получила изображение")
+                folioLog("snapshot: ERROR — a page requested during prefetch did not get an image")
             }
             RenderStore.shared.synchronous = true
         }
 
-        // Недавние документы: MRU-порядок, дедупликация, лимит, очистка.
-        // Проверяем на временном UserDefaults suite — реальный список не трогаем.
+        // Recent documents: MRU order, deduplication, limit, clearing.
+        // Checked against a temporary UserDefaults suite — the real list is untouched.
         let recentsSuite = "Folio.snapshot.recents"
         if let recentsDefaults = UserDefaults(suiteName: recentsSuite) {
             recentsDefaults.removePersistentDomain(forName: recentsSuite)
             let store = RecentDocumentsStore(defaults: recentsDefaults)
-            // Каталог с фикстурами — от открытого документа, а не от cwd: приложение
-            // могут запустить из любого каталога (например, из «/» как Finder).
+            // The fixtures directory comes from the open document, not from the cwd:
+            // the app may be launched from any directory (e.g. «/» as Finder does).
             let samplesDir = model.documentURL?.deletingLastPathComponent()
                 ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("samples")
             let attention = samplesDir.appendingPathComponent("attention.pdf")
@@ -431,7 +433,7 @@ enum SnapshotRunner {
             guard FileManager.default.fileExists(atPath: attention.path),
                   FileManager.default.fileExists(atPath: russian.path),
                   FileManager.default.fileExists(atPath: noText.path) else {
-                folioLog("snapshot: проверка недавних пропущена — нет фикстур в \(samplesDir.path)")
+                folioLog("snapshot: recents check skipped — no fixtures in \(samplesDir.path)")
                 recentsDefaults.removePersistentDomain(forName: recentsSuite)
                 return
             }
@@ -439,17 +441,17 @@ enum SnapshotRunner {
             store.note(attention)
             store.note(russian)
             store.note(noText)
-            folioLog("snapshot: недавние (MRU) = \(store.documents.map(\.title))")
+            folioLog("snapshot: recent documents (MRU) = \(store.documents.map(\.title))")
             store.note(attention)
-            folioLog("snapshot: после повторного открытия = \(store.documents.map(\.title))")
+            folioLog("snapshot: after reopening = \(store.documents.map(\.title))")
             if store.documents.first?.url.standardizedFileURL != attention.standardizedFileURL {
-                folioLog("snapshot: ОШИБКА — повторно открытый документ не поднялся в начало списка")
+                folioLog("snapshot: ERROR — a reopened document did not move to the top of the list")
             }
             if Set(store.documents.map(\.id)).count != store.documents.count {
-                folioLog("snapshot: ОШИБКА — в недавних есть дубликаты")
+                folioLog("snapshot: ERROR — the recent documents contain duplicates")
             }
 
-            // Лимит: создаём 20 временных файлов и проверяем усечение списка.
+            // Limit: create 20 temporary files and check that the list is truncated.
             let tempDir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("folio-recents-test")
             try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
             for index in 0..<20 {
@@ -457,65 +459,69 @@ enum SnapshotRunner {
                 FileManager.default.createFile(atPath: file.path, contents: Data())
                 store.note(file)
             }
-            folioLog("snapshot: лимит недавних — \(store.documents.count) из 20 добавленных (лимит \(RecentDocumentsStore.limit))")
+            folioLog("snapshot: recent documents limit — \(store.documents.count) of 20 added (limit \(RecentDocumentsStore.limit))")
             if store.documents.count != RecentDocumentsStore.limit {
-                folioLog("snapshot: ОШИБКА — лимит недавних не соблюдается")
+                folioLog("snapshot: ERROR — the recent documents limit is not enforced")
             }
             try? FileManager.default.removeItem(at: tempDir)
             store.clear()
-            folioLog("snapshot: после очистки — \(store.documents.count) документов")
+            folioLog("snapshot: after clearing — \(store.documents.count) documents")
             recentsDefaults.removePersistentDomain(forName: recentsSuite)
         }
 
-        // Подменю «Открыть недавние» должно быть в главном меню (Файл → Открыть недавние).
+        // The «Open Recent» submenu must be in the main menu (File → Open Recent).
         if let recentMenu = RecentDocumentsMenu.submenu() {
-            folioLog("snapshot: меню «Открыть недавние» найдено, пунктов: \(recentMenu.items.count)")
+            folioLog("snapshot: «Open Recent» menu found, items: \(recentMenu.items.count)")
         } else {
-            folioLog("snapshot: ОШИБКА — в главном меню нет «Открыть недавние»")
+            folioLog("snapshot: ERROR — the main menu has no «Open Recent»")
         }
 
-        // Главное меню: команды приложения (Перевод, Озвучка, Настройки).
+        // Main menu: the app's commands (Translation, Speech, Settings).
         let menuTitles = NSApp.mainMenu?.items.map { $0.title } ?? []
-        folioLog("snapshot: главное меню = \(menuTitles.joined(separator: " | "))")
-        for expected in ["Перевод", "Озвучка"] where !menuTitles.contains(expected) {
-            folioLog("snapshot: ОШИБКА — в главном меню нет «\(expected)»")
+        folioLog("snapshot: main menu = \(menuTitles.joined(separator: " | "))")
+        for expected in [L10n.t("Translation"), L10n.t("Speech")] where !menuTitles.contains(expected) {
+            folioLog("snapshot: ERROR — the main menu has no «\(expected)»")
         }
         if let appMenu = NSApp.mainMenu?.items.first?.submenu,
-           !appMenu.items.contains(where: { $0.title.contains("Настройки") }) {
-            folioLog("snapshot: ОШИБКА — в меню приложения нет пункта «Настройки…»")
+           !appMenu.items.contains(where: { $0.title == L10n.t("Settings…") }) {
+            folioLog("snapshot: ERROR — the application menu has no «\(L10n.t("Settings…"))» item")
         }
 
-        // Контекстное меню: словарь, перевод, озвучка, настройки.
+        // Context menu: dictionary, translation, speech, settings.
         if let pageView = findPageView(in: window, page: 0) {
             let wordTitles = pageView.debugContextMenuTitles(atWord: 9)
-            folioLog("snapshot: контекстное меню (слово) = \(wordTitles.joined(separator: " | "))")
-            for expected in ["словаре", "Перевести", "Озвучить", "Настройки…"]
-            where !wordTitles.contains(where: { $0.contains(expected) }) {
-                folioLog("snapshot: ОШИБКА — в контекстном меню нет пункта «\(expected)»")
+            folioLog("snapshot: context menu (word) = \(wordTitles.joined(separator: " | "))")
+            let wordExpected = [L10n.t("Look Up in Dictionary"), L10n.t("Translate Word…"),
+                                L10n.t("Speak Word"), L10n.t("Settings…")]
+            for expected in wordExpected where !wordTitles.contains(expected) {
+                folioLog("snapshot: ERROR — the context menu has no «\(expected)» item")
             }
             if let selection = model.selection, !selection.isEmpty, let first = selection.wordIndices.first {
                 let selectionTitles = pageView.debugContextMenuTitles(atWord: first)
-                folioLog("snapshot: контекстное меню (выделение) = \(selectionTitles.joined(separator: " | "))")
-                if !selectionTitles.contains(where: { $0.contains("выделение") }) {
-                    folioLog("snapshot: ОШИБКА — для выделения меню не предлагает действия с выделением")
+                folioLog("snapshot: context menu (selection) = \(selectionTitles.joined(separator: " | "))")
+                let selectionExpected = [L10n.t("Look Up Selection in Dictionary"),
+                                         L10n.t("Translate Selection…"),
+                                         L10n.t("Speak Selection")]
+                if !selectionExpected.contains(where: { selectionTitles.contains($0) }) {
+                    folioLog("snapshot: ERROR — the context menu offers no selection actions")
                 }
             }
         }
 
-        // Окно настроек — настоящее окно, снимок для документации.
+        // Settings window — a real window, captured for documentation.
         SettingsWindow.shared.show()
         pump(0.9)
-        if let settingsWindow = NSApp.windows.first(where: { $0.title == "Настройки Folio" }) {
+        if let settingsWindow = NSApp.windows.first(where: { $0.title == L10n.t("Folio Settings") }) {
             capture(window: settingsWindow, name: "settings.png", options: options)
             settingsWindow.orderOut(nil)
-            folioLog("snapshot: окно настроек снято (settings.png)")
+            folioLog("snapshot: settings window captured (settings.png)")
         } else {
-            folioLog("snapshot: ОШИБКА — окно настроек не появилось")
+            folioLog("snapshot: ERROR — the settings window did not appear")
         }
         pump(0.3)
 
-        // Панель перевода. С --snapshot-translate идём настоящим путём:
-        // выделение → TranslationController.request → .translationTask → системный перевод.
+        // Translation panel. With --snapshot-translate we take the real path:
+        // selection → TranslationController.request → .translationTask → system translation.
         var translationIsLive = false
         if options.liveTranslation {
             if let pageView = findPageView(in: window, page: 0) {
@@ -525,27 +531,28 @@ enum SnapshotRunner {
                     model.translation.request(text: selection.text,
                                               sourceID: "en-US",
                                               targetID: "ru-RU",
-                                              origin: "выделения")
+                                              origin: "selection")
                     let finished = waitUntil(timeout: 40) {
                         model.translation.phase == .done || {
                             if case .failed = model.translation.phase { return true }
                             return false
                         }()
                     }
-                    folioLog("snapshot: системный перевод — завершён=\(finished), фаза=\(model.translation.phase)")
+                    folioLog("snapshot: system translation — finished=\(finished), phase=\(model.translation.phase)")
                     if case .done = model.translation.phase {
                         translationIsLive = true
-                        folioLog("snapshot: перевод системы: «\(String(model.translation.translatedText.prefix(140)))»")
+                        folioLog("snapshot: system translation: «\(String(model.translation.translatedText.prefix(140)))»")
                     } else if case .failed(let message) = model.translation.phase {
-                        folioLog("snapshot: перевод системы не удался: \(message) — показываю заглушку")
+                        folioLog("snapshot: system translation failed: \(message) — showing the stub")
                     }
                 }
             }
         }
         if !translationIsLive {
+            // Simulated system translation result — the English source localized to the UI language.
             model.translation.debugInjectResult(
                 source: "Attention is all you need. The dominant sequence transduction models are based on complex recurrent or convolutional neural networks.",
-                translated: "Внимание — это всё, что нужно. Доминирующие модели преобразования последовательностей основаны на сложных рекуррентных или свёрточных нейронных сетях.",
+                translated: L10n.t("Attention is all you need. The dominant sequence transduction models are based on complex recurrent or convolutional neural networks."),
                 sourceID: "en-US",
                 targetID: "ru-RU"
             )
@@ -553,19 +560,19 @@ enum SnapshotRunner {
         pump(1.2)
         if let sheet = window.attachedSheet {
             capture(window: sheet, name: "translation-panel.png", options: options)
-            folioLog("snapshot: панель перевода снята (translation-panel.png, \(translationIsLive ? "реальный системный перевод" : "текст-заглушка"))")
+            folioLog("snapshot: translation panel captured (translation-panel.png, \(translationIsLive ? "real system translation" : "stub text"))")
         } else {
-            folioLog("snapshot: ВНИМАНИЕ — панель перевода не появилась как sheet")
+            folioLog("snapshot: WARNING — the translation panel did not appear as a sheet")
         }
         model.translation.isPanelPresented = false
         pump(0.6)
     }
 
-    /// Диагностика тулбара: какие элементы реально стоят в `NSToolbar` и где они.
-    /// Нужна, чтобы ловить дубли вроде двух кнопок боковой панели.
+    /// Toolbar diagnostics: which items are actually in the `NSToolbar` and where.
+    /// Needed to catch duplicates like two sidebar buttons.
     private static func logToolbar(window: NSWindow, label: String) {
         guard let toolbar = window.toolbar else {
-            folioLog("snapshot: toolbar (\(label)) — нет тулбара")
+            folioLog("snapshot: toolbar (\(label)) — no toolbar")
             return
         }
         let items = toolbar.items.map { item -> String in
@@ -583,7 +590,7 @@ enum SnapshotRunner {
         folioLog("snapshot: toolbar (\(label)) \(items.count) items, chrome w=\(Int(bounds.width)) = \(items.joined(separator: " | "))")
     }
 
-    // MARK: - Проверки кэша/консистентности
+    // MARK: - Cache/consistency checks
 
     private static func logPageCountConsistency(model: ReaderModel, label: String) {
         let docPages = model.doc?.pageCount ?? -1
@@ -591,7 +598,7 @@ enum SnapshotRunner {
         let scrollPages = model.pageCount
         folioLog("snapshot: pageCount [\(label)]: doc=\(docPages), structure=\(structurePages), scroll=\(scrollPages)")
         if docPages != scrollPages || (structurePages > 0 && structurePages != docPages) {
-            folioLog("snapshot: ВНИМАНИЕ — pageCount расходится (doc=\(docPages), structure=\(structurePages), scroll=\(scrollPages))")
+            folioLog("snapshot: WARNING — pageCount mismatch (doc=\(docPages), structure=\(structurePages), scroll=\(scrollPages))")
         }
     }
 
@@ -599,7 +606,7 @@ enum SnapshotRunner {
                                               options: Options, nextPdf: URL) {
         let beforeIdentity = model.docIdentity
         let beforePixels = findPageView(in: window, page: 0)?.debugImagePixelSize
-        folioLog("snapshot: смена документа → \(nextPdf.lastPathComponent); было identity=\(beforeIdentity.prefix(60)), растр=\(String(describing: beforePixels))")
+        folioLog("snapshot: switching document → \(nextPdf.lastPathComponent); was identity=\(beforeIdentity.prefix(60)), bitmap=\(String(describing: beforePixels))")
 
         model.open(url: nextPdf)
         let ready = waitUntil(timeout: 25) { model.snapshotReady }
@@ -611,18 +618,18 @@ enum SnapshotRunner {
         forceLayout(window)
         let afterIdentity = model.docIdentity
         let afterPixels = findPageView(in: window, page: 0)?.debugImagePixelSize
-        folioLog("snapshot: после смены: ready=\(ready), identity=\(afterIdentity.prefix(60)), растр=\(String(describing: afterPixels)), страниц=\(model.pageCount), заголовков=\(model.headingRows.count)")
+        folioLog("snapshot: after the switch: ready=\(ready), identity=\(afterIdentity.prefix(60)), bitmap=\(String(describing: afterPixels)), pages=\(model.pageCount), headings=\(model.headingRows.count)")
         if beforeIdentity == afterIdentity {
-            folioLog("snapshot: ОШИБКА — identity не изменился")
+            folioLog("snapshot: ERROR — identity did not change")
         }
         if let beforePixels, let afterPixels, beforePixels == afterPixels {
-            folioLog("snapshot: ВНИМАНИЕ — растр страницы 1 совпадает с прежним документом (возможен старый кэш)")
+            folioLog("snapshot: WARNING — the page 1 bitmap matches the previous document (stale cache possible)")
         }
         logPageCountConsistency(model: model, label: nextPdf.lastPathComponent)
         capture(window: window, name: "switch.png", options: options)
     }
 
-    // MARK: - Окно
+    // MARK: - Window
 
     private static func mainWindow() -> NSWindow? {
         NSApp.windows.first {
@@ -638,13 +645,13 @@ enum SnapshotRunner {
         return mainWindow()
     }
 
-    // MARK: - Захват
+    // MARK: - Capture
 
     @discardableResult
     private static func capture(window: NSWindow, name: String, options: Options) -> Bool {
         let target = options.outDir.appendingPathComponent(name)
 
-        // Пытаемся захватить вместе с titlebar/toolbar, если не выходит — только контент.
+        // Try to capture with the titlebar/toolbar; if that fails, content only.
         let chromeView = window.contentView?.superview
         let contentView = window.contentView
         var candidates: [NSView] = []
@@ -674,22 +681,22 @@ enum SnapshotRunner {
                     folioLog("snapshot: \(name) — layer.render \(stats.summary) (\(rep.pixelsWide)×\(rep.pixelsHigh) px)")
                     return true
                 }
-                folioLog("snapshot: \(name) — пустой кадр через layer.render (\(stats.summary)), пробую иначе")
+                folioLog("snapshot: \(name) — blank frame via layer.render (\(stats.summary)), trying another way")
             }
         }
-        folioLog("snapshot: НЕ УДАЛОСЬ сохранить \(name)")
+        folioLog("snapshot: FAILED to save \(name)")
         return false
     }
 
     private static func save(_ rep: NSBitmapImageRep, to url: URL) {
         guard let data = rep.representation(using: .png, properties: [:]) else {
-            folioLog("snapshot: PNG-кодирование не удалось для \(url.lastPathComponent)")
+            folioLog("snapshot: PNG encoding failed for \(url.lastPathComponent)")
             return
         }
         do {
             try data.write(to: url)
         } catch {
-            folioLog("snapshot: запись \(url.path) — ошибка \(error.localizedDescription)")
+            folioLog("snapshot: writing \(url.path) — error \(error.localizedDescription)")
         }
     }
 
@@ -709,7 +716,7 @@ enum SnapshotRunner {
         return context.makeImage()
     }
 
-    // MARK: - Анализ «пустого» кадра
+    // MARK: - Blank frame analysis
 
     private struct Stats {
         var isBlank: Bool
@@ -718,7 +725,7 @@ enum SnapshotRunner {
 
     private static func analyze(_ rep: NSBitmapImageRep) -> Stats {
         guard let data = rep.bitmapData, rep.bitsPerPixel >= 24 else {
-            return Stats(isBlank: true, summary: "нет данных")
+            return Stats(isBlank: true, summary: "no data")
         }
         let bytesPerRow = rep.bytesPerRow
         let samplesPerPixel = max(rep.bitsPerPixel / 8, 3)
@@ -748,7 +755,7 @@ enum SnapshotRunner {
                      summary: "samples=\(count) R[\(rmin)…\(rmax)] G[\(gmin)…\(gmax)] B[\(bmin)…\(bmax)]")
     }
 
-    // MARK: - Поиск NSView по иерархии
+    // MARK: - Find NSView in the hierarchy
 
     private static func findPageView(in window: NSWindow, page: Int) -> PageCanvasView? {
         guard let root = window.contentView else { return nil }
@@ -797,7 +804,7 @@ enum SnapshotRunner {
         lines.append("out: \(options.outDir.path)")
         lines.append("pdf: \(options.pdf.path)")
         lines.append("mock: \(PdfCore.isMockMode)")
-        lines.append("core: \(CoreLibrary.shared()?.versionString ?? "нет")")
+        lines.append("core: \(CoreLibrary.shared()?.versionString ?? "none")")
         lines.append("dylib: \(CoreLibrary.locateDylib() ?? "—")")
         lines.append("status: \(model.statusText)")
         lines.append("pages: \(model.pageCount)")
@@ -812,8 +819,8 @@ enum SnapshotRunner {
             return "unavailable"
         }()
         lines.append("translation: pair=\(model.settings.translationPairTitle), framework=\(translationFramework)")
-        lines.append("contextMenu: словарь/тезаурус (showDefinition), перевод выделения, озвучка, копировать, настройки, разметка")
-        lines.append("translationPanel: \(options.liveTranslation ? "реальный системный перевод (--snapshot-translate)" : "демонстрационный текст — реальный перевод требует системных моделей")")
+        lines.append("contextMenu: dictionary/thesaurus (showDefinition), translate selection, speak, copy, settings, layout")
+        lines.append("translationPanel: \(options.liveTranslation ? "real system translation (--snapshot-translate)" : "demo text — real translation requires system models")")
         lines.append("headings: \(model.headingRows.count)")
         for row in model.headingRows.prefix(30) {
             lines.append("  H\(row.level) p\(row.page + 1): \(row.title)")

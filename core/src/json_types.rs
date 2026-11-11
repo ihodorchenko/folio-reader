@@ -1,7 +1,7 @@
-//! JSON-модели, строго по CONTRACT.md §3–§5 (camelCase, bbox:{x,y,w,h}).
+//! JSON models, strictly per CONTRACT.md §3–§5 (camelCase, bbox:{x,y,w,h}).
 //!
-//! Все значения санитизируются: NaN/Infinity не попадают в JSON, координаты
-//! округляются до 1e-3, размеры шрифта — до 0.1.
+//! All values are sanitized: NaN/Infinity never reach JSON, coordinates
+//! are rounded to 1e-3 and font sizes to 0.1.
 
 use serde::{Deserialize, Serialize};
 
@@ -21,7 +21,7 @@ pub fn r1(v: f64) -> f64 {
     }
 }
 
-/// Прямоугольник в точках PDF, origin top-left, y вниз.
+/// Rectangle in PDF points, origin top-left, y down.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Rect {
     pub x: f64,
@@ -81,7 +81,7 @@ impl Rect {
         )
     }
 
-    /// Площадь пересечения (0 если не пересекаются).
+    /// Intersection area (0 if the rectangles do not intersect).
     pub fn intersect_area(&self, o: &Rect) -> f64 {
         let l = self.x.max(o.x);
         let t = self.y.max(o.y);
@@ -94,7 +94,7 @@ impl Rect {
         }
     }
 
-    /// Доля горизонтального перекрытия относительно меньшей ширины.
+    /// Horizontal overlap ratio relative to the smaller width.
     pub fn x_overlap_ratio(&self, o: &Rect) -> f64 {
         let l = self.x.max(o.x);
         let r = self.right().min(o.right());
@@ -171,7 +171,7 @@ impl BlockKind {
         }
     }
 
-    /// Может ли строка этого kind продолжаться на следующей строке.
+    /// Whether a line of this kind can continue on the next line.
     pub fn continues(self) -> bool {
         matches!(
             self,
@@ -269,7 +269,7 @@ pub struct SearchResult {
     pub hits: Vec<SearchHit>,
 }
 
-/// Страница целиком: layout + метаданные для классификации.
+/// A whole page: layout + metadata for classification.
 #[derive(Clone, Debug)]
 pub struct PageData {
     pub layout: PageLayout,
@@ -277,7 +277,7 @@ pub struct PageData {
     pub char_count: usize,
 }
 
-/// Внутренние признаки строки, нужные классификатору (в JSON не уходят).
+/// Internal line features needed by the classifier (never serialized to JSON).
 #[derive(Clone, Debug, Default)]
 pub struct LineMeta {
     pub page: i32,

@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// Общие константы и цвета UI-слоя.
+/// Shared constants and colors for the UI layer.
 enum FolioUI {
     static let pageSpacing: CGFloat = 28
     static let contentPadding: CGFloat = 40

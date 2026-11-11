@@ -1,17 +1,17 @@
 import AppKit
 import CoreGraphics
 
-/// Страница документа: рисует растровый рендер ядра, оверлей текста
-/// (hover/drag-выделение), debug-разметку блоков и обрабатывает сильное нажатие.
+/// Document page: draws the core raster render, the text overlay
+/// (hover/drag selection), the debug block layout, and handles force click.
 ///
-/// Координаты: NSView «перевёрнут» (isFlipped == true), поэтому page-координаты
-/// (origin — левый верхний угол страницы, y вниз) совпадают с view при делении на zoom.
+/// Coordinates: the NSView is flipped (isFlipped == true), so page coordinates
+/// (origin at the top-left corner of the page, y downward) match the view when divided by zoom.
 final class PageCanvasView: NSView {
-    /// Последняя страница, получившая фокус/наведение — для ⌘D из меню.
+    /// The last page that received focus/hover — for ⌘D from the menu.
     static weak var active: PageCanvasView?
 
-    /// Страница в конкретном (обычно активном) окне: при нескольких окнах ⌘D
-    /// должен работать с тем окном, где фокус, а не с последним наведённым.
+    /// The page in a specific (usually active) window: with several windows ⌘D
+    /// must work with the window that has focus, not with the last hovered one.
     static func active(in window: NSWindow?) -> PageCanvasView? {
         guard let window, let root = window.contentView else { return nil }
         var found: PageCanvasView?
@@ -30,30 +30,30 @@ final class PageCanvasView: NSView {
     let pageIndex: Int
     weak var model: ReaderModel?
 
-    // Геометрия страницы
+    // Page geometry
     private(set) var pageSize: CGSize = CGSize(width: 612, height: 792)
     private(set) var zoom: CGFloat = 1
     private(set) var renderScale: CGFloat = 2
     private(set) var layoutInfo: PcPageLayout?
     private(set) var geometry: PageTextGeometry?
-    /// Отпечаток документа: при смене документа сбрасываем растровый кэш страницы.
+    /// Document fingerprint: reset the page raster cache when the document changes.
     private(set) var documentIdentity = ""
 
-    // Отрисовка
+    // Drawing
     private var image: CGImage?
     private var imageScale: CGFloat = .nan
     private var pendingScale: CGFloat = .nan
-    /// Масштаб, на котором рендер уже провалился — не повторяем бесконечно.
+    /// Scale at which rendering already failed — do not retry endlessly.
     private var failedScale: CGFloat = .nan
-    /// Масштабы, для которых уже была одна повторная попытка после сбоя.
+    /// Scales that have already had one retry after a failure.
     private var retriedScales = Set<CGFloat>()
-    /// Лог «нет документа» пишем один раз, чтобы не засорять консоль при открытии.
+    /// The "no document" log is written once so opening does not flood the console.
     private var loggedMissingDocument = false
     var selection: Selection? { didSet { needsDisplay = true } }
     var searchRects: [PcRect] = [] { didSet { needsDisplay = true } }
     var debugMode: DebugOverlayMode = .off { didSet { needsDisplay = true } }
 
-    // Интерактивность
+    // Interactivity
     private var trackingAreaRef: NSTrackingArea?
     private var hoverWordIndex: Int?
     private var lastHoverPoint: CGPoint?
@@ -75,7 +75,7 @@ final class PageCanvasView: NSView {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) не используется") }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     deinit {
         if PageCanvasView.active === self { PageCanvasView.active = nil }
@@ -86,7 +86,7 @@ final class PageCanvasView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override var isOpaque: Bool { false }
 
-    // MARK: - Конфигурация из SwiftUI
+    // MARK: - Configuration from SwiftUI
 
     func configure(pageSize: CGSize,
                    zoom: Double,
@@ -105,7 +105,7 @@ final class PageCanvasView: NSView {
             failedScale = .nan
             retriedScales = []
             loggedMissingDocument = false
-            // Другой документ — геометрия и выделение от прежнего невалидны.
+            // Another document — the geometry and selection from the previous one are invalid.
             layoutInfo = nil
             geometry = nil
             hoverWordIndex = nil
@@ -137,13 +137,13 @@ final class PageCanvasView: NSView {
         }
     }
 
-    // MARK: - Изображение страницы
+    // MARK: - Page image
 
     func ensureImage() {
         guard let doc = model?.doc, pageSize.width > 1, pageSize.height > 1 else {
             if !loggedMissingDocument {
                 loggedMissingDocument = true
-                folioLog("render: стр. \(pageIndex + 1) ждёт документ/размер (doc=\(model?.doc != nil), size=\(pageSize))")
+                folioLog("render: page \(pageIndex + 1) is waiting for a document/size (doc=\(model?.doc != nil), size=\(pageSize))")
             }
             return
         }
@@ -151,7 +151,7 @@ final class PageCanvasView: NSView {
         if image != nil, abs(imageScale - scale) < 0.05 { return }
         if image != nil, abs(pendingScale - scale) < 0.05 { return }
         if abs(failedScale - scale) < 0.05 {
-            folioLog("render: пропуск стр. \(pageIndex + 1) — предыдущая попытка scale=\(scale) не удалась")
+            folioLog("render: skipping page \(pageIndex + 1) — the previous attempt at scale=\(scale) failed")
             return
         }
         let prefix = "page:\(documentIdentity)"
@@ -168,8 +168,8 @@ final class PageCanvasView: NSView {
             self.pendingScale = .nan
             guard let rendered else {
                 self.failedScale = requested
-                folioLog("render: страница \(page + 1) не отрендерилась (scale \(String(format: "%.2f", Double(requested))))")
-                // Транзиентный сбой (например, документ менялся) — одна повторная попытка.
+                folioLog("render: page \(page + 1) failed to render (scale \(String(format: "%.2f", Double(requested))))")
+                // Transient failure (for example, the document was changing) — one retry.
                 if !self.retriedScales.contains(requested) {
                     self.retriedScales.insert(requested)
                     Task { @MainActor in
@@ -187,7 +187,7 @@ final class PageCanvasView: NSView {
                 self.ensureImage()
             }
         }
-        // Синхронный режим (снапшот): изображение готово сразу.
+        // Synchronous mode (snapshot): the image is ready immediately.
         if let immediate {
             pendingScale = .nan
             setImage(immediate, scale: scale)
@@ -200,7 +200,7 @@ final class PageCanvasView: NSView {
         needsDisplay = true
     }
 
-    // MARK: - Отрисовка
+    // MARK: - Drawing
 
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
@@ -210,7 +210,7 @@ final class PageCanvasView: NSView {
 
         let paper = bounds.insetBy(dx: 0.5, dy: 0.5)
 
-        // Тень страницы (рисуем в перевёрнутой системе координат: +y — вниз).
+        // Page shadow (drawn in the flipped coordinate system: +y is down).
         ctx.saveGState()
         if image != nil {
             ctx.setShadow(offset: CGSize(width: 0, height: 2), blur: 9,
@@ -231,19 +231,19 @@ final class PageCanvasView: NSView {
             drawLoadingPlaceholder(ctx)
         }
 
-        // Для мока пишем настоящий текст из layout поверх «полос» мок-рендера:
-        // так снапшоты читаются как документ, а хит-тест совпадает с картинкой.
+        // For the mock, draw the real text from the layout over the mock "bars":
+        // this way snapshots read like a document and hit-testing matches the picture.
         if model?.isMock == true {
             drawMockText(ctx)
         }
 
-        // Подсветка поиска — под выделением и hover.
+        // Search highlights — below the selection and hover.
         if !searchRects.isEmpty {
             fill(pageRects: searchRects, color: NSColor.systemYellow.withAlphaComponent(0.35))
             stroke(pageRects: searchRects, color: NSColor.systemOrange.withAlphaComponent(0.55), width: 1)
         }
 
-        // Выделение (объединяем по строкам, как это делает Preview).
+        // Selection (merged by lines, the way Preview does it).
         if let selection, selection.page == pageIndex, !selection.rects.isEmpty {
             let active = window?.isKeyWindow ?? true
             let color = active ? NSColor.controlAccentColor.withAlphaComponent(0.26)
@@ -251,7 +251,7 @@ final class PageCanvasView: NSView {
             fill(pageRects: selection.rects, color: color)
         }
 
-        // Hover слова.
+        // Word hover.
         if let hoverWordIndex, let word = geometry?.word(at: hoverWordIndex) {
             let rect = viewRect(word.bbox)
             fill(viewRects: [rect], color: NSColor.controlAccentColor.withAlphaComponent(0.16))
@@ -263,25 +263,25 @@ final class PageCanvasView: NSView {
             underline.stroke()
         }
 
-        // Рамка листа.
+        // Page border.
         ctx.saveGState()
         ctx.setStrokeColor(NSColor.separatorColor.withAlphaComponent(0.55).cgColor)
         ctx.setLineWidth(1)
         ctx.stroke(paper)
         ctx.restoreGState()
 
-        // Debug-оверлей: блоки (kind/level/confidence) или рамки отдельных слов.
+        // Debug overlay: blocks (kind/level/confidence) or boxes around individual words.
         switch debugMode {
         case .off: break
         case .blocks: drawDebugOverlay(ctx)
         case .words: drawWordBoxes(ctx)
         }
 
-        // Рамка фокуса для клавиатурных сценариев не нужна — ридер не редактируемый.
+        // No focus ring for keyboard scenarios — the reader is not editable.
     }
 
     private func drawLoadingPlaceholder(_ ctx: CGContext) {
-        let text = "Рендер страницы \(pageIndex + 1)…"
+        let text = L10n.t("Rendering page %ld…", pageIndex + 1)
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 11),
             .foregroundColor: NSColor.tertiaryLabelColor
@@ -293,9 +293,9 @@ final class PageCanvasView: NSView {
 
     private func drawMockText(_ ctx: CGContext) {
         guard let layoutInfo else { return }
-        // Мок-рендер — цветные полосы вместо глифов, поэтому поверх пишем реальный
-        // текст строк из layout. Цвет фиксированный: бумага всегда белая, в тёмной
-        // теме labelColor стал бы белым и текст исчез.
+        // The mock render uses colored bars instead of glyphs, so the real line text
+        // from the layout is drawn on top. The color is fixed: the paper is always white,
+        // and in dark mode labelColor would turn white and the text would disappear.
         _ = ctx
         let textColor = NSColor(srgbRed: 0.10, green: 0.10, blue: 0.12, alpha: 1)
         for block in layoutInfo.blocks {
@@ -314,8 +314,8 @@ final class PageCanvasView: NSView {
         }
     }
 
-    /// Тонкие рамки вокруг КАЖДОГО слова — основной инструмент проверки
-    /// совпадения оверлея с реальными глифами PDFium.
+    /// Thin boxes around EVERY word — the main tool for checking that the overlay
+    /// matches the real PDFium glyphs.
     private func drawWordBoxes(_ ctx: CGContext) {
         guard let layoutInfo else { return }
         ctx.saveGState()
@@ -350,7 +350,7 @@ final class PageCanvasView: NSView {
             if block.confidence > 0 { label += String(format: " %.2f", block.confidence) }
             let blockRect = viewRect(block.bbox)
             let labelSize = (label as NSString).size(withAttributes: [.font: labelFont])
-            // Плашку ставим НАД блоком, чтобы не закрывать текст (внутрь — если места нет).
+            // The badge is placed ABOVE the block so it does not cover the text (inside if there is no room).
             let labelY = blockRect.minY > 12 ? blockRect.minY - 11.5 : blockRect.minY + 0.5
             let badgeRect = CGRect(x: blockRect.minX, y: labelY,
                                    width: labelSize.width + 6, height: 11.5)
@@ -361,7 +361,7 @@ final class PageCanvasView: NSView {
         }
     }
 
-    // MARK: - Координаты
+    // MARK: - Coordinates
 
     private func pagePoint(from viewPoint: CGPoint) -> CGPoint {
         CGPoint(x: viewPoint.x / zoom, y: viewPoint.y / zoom)
@@ -441,7 +441,7 @@ final class PageCanvasView: NSView {
         }
     }
 
-    // MARK: - Мышь: выделение
+    // MARK: - Mouse: selection
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
@@ -481,22 +481,22 @@ final class PageCanvasView: NSView {
             needsDisplay = true
         }
         guard !isDragging else { return }
-        // Клик без протяжки — снимаем выделение (курсор в тексте).
+        // Click without dragging — clear the selection (the cursor is in the text).
         model?.clearSelection()
     }
 
-    // MARK: - Force click → системный словарь
+    // MARK: - Force click → system dictionary
 
-    /// Пауза между вызовами словаря: force click, ⌘D и контекстное меню могут
-    /// прийти почти одновременно, а каждый `showDefinition` перезагружает панель.
+    /// Pause between dictionary invocations: force click, ⌘D and the context menu can
+    /// arrive almost simultaneously, and every `showDefinition` reloads the panel.
     static let lookUpCooldown: TimeInterval = 0.5
 
-    /// Последняя стадия нажатия. Force Touch продолжает слать события на той же
-    /// стадии, пока палец давит, поэтому жест должен срабатывать только на переходе в stage 2.
+    /// The last pressure stage. Force Touch keeps sending events at the same stage
+    /// while the finger presses, so the gesture must fire only on the transition to stage 2.
     private var lastPressureStage = 0
-    /// Момент последнего реального открытия словаря (systemUptime).
+    /// Time of the last actual dictionary opening (systemUptime).
     private var lastLookUpTime: TimeInterval = 0
-    /// Сколько раз реально вызывали `showDefinition` — для приёмки.
+    /// How many times `showDefinition` was actually called — for acceptance checks.
     private(set) var lookUpCallCount = 0
 
     override func pressureChange(with event: NSEvent) {
@@ -504,48 +504,48 @@ final class PageCanvasView: NSView {
         handlePressureStage(event.stage, pressure: Double(event.pressure))
     }
 
-    /// Один жест — один словарь: реагируем только на переход в stage 2.
+    /// One gesture — one dictionary: react only to the transition to stage 2.
     func handlePressureStage(_ stage: Int, pressure: Double = 0) {
         let previous = lastPressureStage
         lastPressureStage = stage
         guard stage == 2 else { return }
         guard previous != 2 else {
-            folioLog("force-click: повторное stage 2 (pressure=\(String(format: "%.2f", pressure))) — жест уже обработан")
+            folioLog("force-click: repeated stage 2 (pressure=\(String(format: "%.2f", pressure))) — gesture already handled")
             return
         }
         handleDeepClick()
     }
 
-    /// Общий путь «сильное нажатие»: используется и из pressureChange(stage 2),
-    /// и из программной эмуляции в снапшот-режиме (Force Touch на CI недоступен).
+    /// Common "force click" path: used both from pressureChange(stage 2)
+    /// and from the programmatic emulation in snapshot mode (Force Touch is not available on CI).
     private func handleDeepClick() {
         guard let point = mouseDownPoint ?? lastHoverPoint else {
-            folioLog("force-click: нет точки нажатия")
+            folioLog("force-click: no click point")
             return
         }
         lookUp(at: point)
     }
 
-    /// Точка из force click / контекстного меню: слово строго под точкой.
+    /// Point from force click / the context menu: the word strictly under the point.
     func lookUp(at pagePoint: CGPoint) {
         guard let geometry, !geometry.isEmpty else {
-            folioLog("lookup: на странице \(pageIndex + 1) нет текстового слоя")
+            folioLog("lookup: page \(pageIndex + 1) has no text layer")
             NSSound.beep()
             return
         }
         guard let index = geometry.wordIndex(at: pagePoint, tolerance: 10)
                 ?? geometry.nearestWordIndex(to: pagePoint) else {
-            folioLog("lookup: слово не найдено в точке (\(String(format: "%.1f", pagePoint.x)), \(String(format: "%.1f", pagePoint.y)))")
+            folioLog("lookup: no word found at point (\(String(format: "%.1f", pagePoint.x)), \(String(format: "%.1f", pagePoint.y)))")
             NSSound.beep()
             return
         }
         presentLookUp(index: index, point: pagePoint, source: "point")
     }
 
-    /// ⌘D / меню «Найти в словаре»: приоритет — выделение, затем hover, затем первое слово.
+    /// ⌘D / the "Look Up in Dictionary" menu item: selection first, then hover, then the first word.
     func lookUpAtHover() {
         guard let geometry, !geometry.isEmpty else {
-            folioLog("lookup: на странице \(pageIndex + 1) нет текстового слоя")
+            folioLog("lookup: page \(pageIndex + 1) has no text layer")
             NSSound.beep()
             return
         }
@@ -564,7 +564,7 @@ final class PageCanvasView: NSView {
                           source: "first")
             return
         }
-        folioLog("lookup: нет слова для поиска в словаре")
+        folioLog("lookup: no word to look up")
         NSSound.beep()
     }
 
@@ -580,26 +580,26 @@ final class PageCanvasView: NSView {
         return best.index
     }
 
-    /// Единая точка вызова системного словаря (force click, ⌘D, контекстное меню).
+    /// Single entry point for the system dictionary (force click, ⌘D, context menu).
     private func presentLookUp(index: Int, point: CGPoint?, source: String) {
         guard let geometry, index >= 0, index < geometry.words.count else { return }
         let ref = geometry.words[index]
         let text = ref.word.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
-            folioLog("lookup: пустое слово под курсором")
+            folioLog("lookup: empty word under the cursor")
             return
         }
-        // Точка baseline слова в координатах view: у flipped NSView y = pageY * zoom.
+        // The word's baseline point in view coordinates: for a flipped NSView y = pageY * zoom.
         let baseline = CGPoint(x: CGFloat(ref.word.bbox.midX) * zoom,
                                y: CGFloat(ref.baselineY) * zoom)
         let clamped = CGPoint(x: min(max(baseline.x, 0), max(bounds.width - 1, 0)),
                               y: min(max(baseline.y, 0), max(bounds.height - 1, 0)))
-        // Один словарь на короткий интервал: несколько источников (сильное нажатие,
-        // ⌘D, контекстное меню) не должны перезагружать панель несколько раз.
+        // One dictionary per short interval: several sources (force click,
+        // ⌘D, context menu) must not reload the panel several times.
         let now = ProcessInfo.processInfo.systemUptime
         let sinceLast = now - lastLookUpTime
         if sinceLast < Self.lookUpCooldown {
-            folioLog("lookup: пропуск повторного вызова (source=\(source), \(String(format: "%.2f", sinceLast)) с после прошлого)")
+            folioLog("lookup: skipping repeated call (source=\(source), \(String(format: "%.2f", sinceLast)) s since the last one)")
             return
         }
         lastLookUpTime = now
@@ -613,10 +613,10 @@ final class PageCanvasView: NSView {
         showDefinition(for: attributed, at: clamped)
     }
 
-    // MARK: - Копирование (⌘C через responder chain)
+    // MARK: - Copy (⌘C through the responder chain)
 
-    /// Стандартное действие Edit ▸ Copy: NSResponder не объявляет `copy:`,
-    /// поэтому это обычный @objc-экшен для responder chain.
+    /// The standard Edit ▸ Copy action: NSResponder does not declare `copy:`,
+    /// so this is a regular @objc action for the responder chain.
     @objc func copy(_ sender: Any?) {
         model?.copySelection()
     }
@@ -627,7 +627,7 @@ final class PageCanvasView: NSView {
         needsDisplay = true
     }
 
-    // MARK: - Контекстное меню
+    // MARK: - Context menu
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let local = convert(event.locationInWindow, from: nil)
@@ -639,56 +639,56 @@ final class PageCanvasView: NSView {
         return makeContextMenu()
     }
 
-    /// Меню строится отдельно от события: так его содержимое можно проверить
-    /// в headless-приёмке (событие правого клика там не синтезируется).
+    /// The menu is built separately from the event: this way its content can be checked
+    /// in the headless acceptance run (the right-click event is not synthesized there).
     private func makeContextMenu() -> NSMenu {
         let menu = NSMenu(title: "")
         let onSelection = selectionIsUnderContextPoint()
         let speechOn = model?.settings.speechEnabled ?? false
 
-        // 1. Системный словарь/тезаурус — тот же путь, что сильное нажатие (showDefinition).
-        let lookUpItem = NSMenuItem(title: onSelection ? "Найти слово в словаре" : "Найти в словаре",
+        // 1. System dictionary/thesaurus — the same path as force click (showDefinition).
+        let lookUpItem = NSMenuItem(title: onSelection ? L10n.t("Look Up Selection in Dictionary") : L10n.t("Look Up in Dictionary"),
                                     action: #selector(contextLookUp(_:)), keyEquivalent: "d")
         lookUpItem.keyEquivalentModifierMask = .command
         lookUpItem.target = self
         menu.addItem(lookUpItem)
 
-        // 2. Перевод выделения/слова (системный Translation framework).
-        let translateItem = NSMenuItem(title: onSelection ? "Перевести выделение…" : "Перевести слово…",
+        // 2. Translating the selection/word (the system Translation framework).
+        let translateItem = NSMenuItem(title: onSelection ? L10n.t("Translate Selection…") : L10n.t("Translate Word…"),
                                        action: #selector(contextTranslate(_:)), keyEquivalent: "t")
         translateItem.keyEquivalentModifierMask = [.command, .option]
         translateItem.target = self
-        translateItem.toolTip = "Пара языков: \(model?.settings.translationPairTitle ?? "—") (меняется в настройках ⌘,)"
+        translateItem.toolTip = L10n.t("Language pair: %@ (change it in Settings ⌘,)", model?.settings.translationPairTitle ?? "—")
         menu.addItem(translateItem)
 
-        // 3. Озвучка (по умолчанию выключена — тогда пункт неактивен и объясняет, что делать).
-        let speakItem = NSMenuItem(title: onSelection ? "Озвучить выделение" : "Озвучить слово",
+        // 3. Speech (off by default — the item is then disabled and explains what to do).
+        let speakItem = NSMenuItem(title: onSelection ? L10n.t("Speak Selection") : L10n.t("Speak Word"),
                                    action: #selector(contextSpeak(_:)), keyEquivalent: "")
         speakItem.target = self
         speakItem.toolTip = speechOn
-            ? "Прочитать текст вслух (AVSpeechSynthesizer)"
-            : "Озвучка выключена — включите её в настройках (⌘,)"
+            ? L10n.t("Read the text aloud (AVSpeechSynthesizer)")
+            : L10n.t("Speech is off — enable it in Settings (⌘,)")
         menu.addItem(speakItem)
 
         menu.addItem(.separator())
 
-        let selectWordItem = NSMenuItem(title: "Выделить слово", action: #selector(contextSelectWord(_:)), keyEquivalent: "")
+        let selectWordItem = NSMenuItem(title: L10n.t("Select Word"), action: #selector(contextSelectWord(_:)), keyEquivalent: "")
         selectWordItem.target = self
         menu.addItem(selectWordItem)
 
-        let copyItem = NSMenuItem(title: "Копировать", action: #selector(contextCopy(_:)), keyEquivalent: "c")
+        let copyItem = NSMenuItem(title: L10n.t("Copy"), action: #selector(contextCopy(_:)), keyEquivalent: "c")
         copyItem.keyEquivalentModifierMask = .command
         copyItem.target = self
         menu.addItem(copyItem)
 
         menu.addItem(.separator())
 
-        let settingsItem = NSMenuItem(title: "Настройки…", action: #selector(contextSettings(_:)), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(title: L10n.t("Settings…"), action: #selector(contextSettings(_:)), keyEquivalent: ",")
         settingsItem.keyEquivalentModifierMask = .command
         settingsItem.target = self
         menu.addItem(settingsItem)
 
-        let debugItem = NSMenuItem(title: model?.showDebugOverlay == true ? "Скрыть разметку" : "Показать разметку",
+        let debugItem = NSMenuItem(title: model?.showDebugOverlay == true ? L10n.t("Hide Layout") : L10n.t("Show Layout"),
                                    action: #selector(contextToggleDebug(_:)), keyEquivalent: "")
         debugItem.target = self
         menu.addItem(debugItem)
@@ -696,7 +696,7 @@ final class PageCanvasView: NSView {
         return menu
     }
 
-    /// Текст, к которому относится правый клик: выделение (если клик внутри него) или слово.
+    /// The text the right click refers to: the selection (if the click is inside it) or the word.
     private func contextText() -> String? {
         if selectionIsUnderContextPoint(), let selection, !selection.text.isEmpty {
             return selection.text
@@ -708,7 +708,7 @@ final class PageCanvasView: NSView {
         return text.isEmpty ? nil : text
     }
 
-    /// Правый клик попал в выделение (с допуском 6 pt — мышь редко попадает точно в глиф).
+    /// The right click landed on the selection (with a 6 pt tolerance — the mouse rarely hits a glyph exactly).
     private func selectionIsUnderContextPoint() -> Bool {
         guard let selection, selection.page == pageIndex, !selection.isEmpty else { return false }
         guard let point = contextPoint ?? lastHoverPoint else { return true }
@@ -716,7 +716,7 @@ final class PageCanvasView: NSView {
     }
 
     @objc private func contextLookUp(_ sender: Any?) {
-        // Словарь по выделению: берём слово из выделения, а не «ближайшее к пикселю».
+        // Dictionary for the selection: take a word from the selection, not the "nearest to the pixel" one.
         if selectionIsUnderContextPoint() {
             lookUpAtHover()
             return
@@ -727,25 +727,25 @@ final class PageCanvasView: NSView {
 
     @objc private func contextTranslate(_ sender: Any?) {
         guard let text = contextText() else {
-            folioLog("translate: под курсором нет текста")
+            folioLog("translate: no text under the cursor")
             NSSound.beep()
             return
         }
-        model?.translate(text, origin: selectionIsUnderContextPoint() ? "выделения" : "слова")
+        model?.translate(text, origin: selectionIsUnderContextPoint() ? "selection" : "word")
     }
 
     @objc private func contextSpeak(_ sender: Any?) {
         guard let text = contextText() else {
-            folioLog("speech: под курсором нет текста")
+            folioLog("speech: no text under the cursor")
             NSSound.beep()
             return
         }
         guard model?.settings.speechEnabled == true else {
-            folioLog("speech: озвучка выключена — открываю настройки")
+            folioLog("speech: speech is off — opening settings")
             model?.presentSettings()
             return
         }
-        model?.speak(text, origin: selectionIsUnderContextPoint() ? "выделения" : "слова")
+        model?.speak(text, origin: selectionIsUnderContextPoint() ? "selection" : "word")
     }
 
     @objc private func contextSettings(_ sender: Any?) {
@@ -768,34 +768,34 @@ final class PageCanvasView: NSView {
         model?.toggleDebugOverlay()
     }
 
-    // MARK: - Клавиатура
+    // MARK: - Keyboard
 
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
-        case 53: // Esc — снять выделение
+        case 53: // Esc — clear the selection
             model?.clearSelection()
         default:
             super.keyDown(with: event)
         }
     }
 
-    // MARK: - Самотесты для снапшот-приёмки
+    // MARK: - Self-tests for snapshot acceptance
 
-    /// Программно выделяет первые N слов страницы (проверка drag-выделения и ⌘C).
+    /// Programmatically selects the first N words of the page (checks drag selection and ⌘C).
     func debugSelectFirstWords(_ count: Int) {
         guard let geometry, !geometry.isEmpty else {
-            folioLog("selftest: нет геометрии для выделения")
+            folioLog("selftest: no geometry to select from")
             return
         }
         let last = max(0, min(count - 1, geometry.words.count - 1))
         let selection = geometry.selection(from: 0, to: last)
         model?.setSelection(selection)
         needsDisplay = true
-        folioLog("selftest: выделено \(selection.rects.count) слов: «\(String(selection.text.prefix(140)))»")
+        folioLog("selftest: selected \(selection.rects.count) words: «\(String(selection.text.prefix(140)))»")
     }
 
-    /// Размер отрендеренного растра — для проверки, что при смене документа
-    /// страница действительно перерисована, а не взята из кэша старого файла.
+    /// Size of the rendered raster — for checking that on document change
+    /// the page is really re-rendered rather than taken from the old file's cache.
     var debugImagePixelSize: CGSize? {
         guard let image else { return nil }
         return CGSize(width: image.width, height: image.height)
@@ -803,13 +803,13 @@ final class PageCanvasView: NSView {
 
     var currentDocumentIdentity: String { documentIdentity }
 
-    /// Состояние рендера страницы одной строкой — для отладочного отчёта.
+    /// Page render state on one line — for the debug report.
     var debugSummary: String {
         let pixels = debugImagePixelSize.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil"
         return "page=\(pageIndex + 1) image=\(pixels) layout=\(layoutInfo != nil) zoom=\(String(format: "%.2f", zoom)) lookups=\(lookUpCallCount) doc=\(documentIdentity.prefix(18))"
     }
 
-    /// Подсветка слова как при наведении мышью (для снапшота).
+    /// Word highlight as if hovered by the mouse (for a snapshot).
     func debugHoverWord(_ index: Int) {
         guard let geometry, !geometry.isEmpty else { return }
         let clamped = min(max(index, 0), geometry.words.count - 1)
@@ -817,36 +817,36 @@ final class PageCanvasView: NSView {
         lastHoverPoint = CGPoint(x: geometry.words[clamped].word.bbox.midX,
                                  y: geometry.words[clamped].word.bbox.midY)
         needsDisplay = true
-        folioLog("selftest: hover на слове «\(geometry.words[clamped].word.text)» (стр. \(pageIndex + 1))")
+        folioLog("selftest: hover on word «\(geometry.words[clamped].word.text)» (p. \(pageIndex + 1))")
     }
 
-    /// Программно вызывает ровно тот же путь, что force click stage 2.
+    /// Programmatically invokes exactly the same path as force click stage 2.
     func debugTriggerForceClickPath() {
         guard let geometry, let first = geometry.words.first else {
-            folioLog("selftest: на странице нет слов для словаря")
+            folioLog("selftest: the page has no words for the dictionary")
             return
         }
         let point = CGPoint(x: first.word.bbox.midX, y: first.word.bbox.midY)
         mouseDownPoint = point
         lastHoverPoint = point
-        folioLog("selftest: эмуляция force-click (stage 2) в точке (\(String(format: "%.1f", point.x)), \(String(format: "%.1f", point.y))) — вызываем тот же handleDeepClick → lookUp")
+        folioLog("selftest: emulating force-click (stage 2) at point (\(String(format: "%.1f", point.x)), \(String(format: "%.1f", point.y))) — calling the same handleDeepClick → lookUp")
         handleDeepClick()
     }
-    /// Только для снапшот-приёмки: сбросить состояние жестов и счётчик словаря.
+    /// Snapshot acceptance only: reset the gesture state and the dictionary counter.
     func debugResetLookUpState() {
         lastPressureStage = 0
         lastLookUpTime = 0
         lookUpCallCount = 0
     }
 
-    /// Только для снапшот-приёмки: скормить последовательность стадий нажатия.
+    /// Snapshot acceptance only: feed a sequence of pressure stages.
     func debugFeedPressureStages(_ stages: [Int]) {
         for stage in stages {
             handlePressureStage(stage, pressure: stage == 2 ? 1.0 : 0.5)
         }
     }
 
-    /// Только для снапшот-приёмки: пункты контекстного меню в точке слова.
+    /// Snapshot acceptance only: the context-menu items at the word's point.
     func debugContextMenuTitles(atWord index: Int) -> [String] {
         guard let geometry, !geometry.isEmpty else { return [] }
         let clamped = min(max(index, 0), geometry.words.count - 1)

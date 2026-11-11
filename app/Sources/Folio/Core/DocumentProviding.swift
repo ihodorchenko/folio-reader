@@ -1,7 +1,7 @@
 import Foundation
 import CoreGraphics
 
-// MARK: - Ошибки и фабрика
+// MARK: - Errors and factory
 
 enum PdfCoreError: LocalizedError {
     case dylibNotFound([String])
@@ -12,37 +12,37 @@ enum PdfCoreError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .dylibNotFound(let searched):
-            return "Не найден libpdfcore.dylib. Искали:\n" + searched.joined(separator: "\n")
+            return L10n.t("libpdfcore.dylib not found. Searched:\n%@", searched.joined(separator: "\n"))
         case .openFailed(let msg):
-            return "Не удалось открыть документ: \(msg)"
+            return L10n.t("Could not open the document: %@", msg)
         case .coreUnavailable:
-            return "Ядро pdfcore недоступно"
+            return L10n.t("The pdfcore library is unavailable")
         case .badResponse(let msg):
-            return "Некорректный ответ ядра: \(msg)"
+            return L10n.t("Invalid core response: %@", msg)
         }
     }
 }
 
-/// Любой документ, который умеет отдавать страницы и структуру.
-/// Методы синхронные и потокобезопасные: вызывать можно с фоновых очередей.
+/// Any document that can provide pages and structure.
+/// Methods are synchronous and thread-safe: they can be called from background queues.
 protocol DocumentProviding: AnyObject, Sendable {
     var isMock: Bool { get }
-    /// Стабильный ключ для кэшей (путь + размер + mtime).
+    /// Stable cache key (path + size + mtime).
     var fingerprint: String { get }
     var pageCount: Int { get }
 
     func structure() throws -> PcDocumentStructure
     func pageLayout(_ index: Int) throws -> PcPageLayout
-    /// Размер страницы в точках (1/72"), уже с учётом rotation.
+    /// Page size in points (1/72"), already including rotation.
     func pageSize(_ index: Int) throws -> CGSize
-    /// Рендер в пикселях. scale == 1.0 → 72 dpi. Возвращает непрозрачный CGImage.
+    /// Pixel rendering. scale == 1.0 → 72 dpi. Returns an opaque CGImage.
     func render(_ index: Int, scale: Double) throws -> CGImage
     func search(_ query: String) throws -> [PcSearchHit]
 }
 
 enum PdfCore {
-    /// Открывает документ через Rust-ядро, если библиотека доступна,
-    /// иначе (в debug-сборке) отдаёт мок, чтобы UI можно было разрабатывать без ядра.
+    /// Opens the document through the Rust core if the library is available,
+    /// otherwise (in a debug build) returns the mock so the UI can be developed without the core.
     static func open(url: URL) throws -> any DocumentProviding {
         if let doc = try? PdfCoreDocument(url: url) {
             return doc
@@ -58,7 +58,7 @@ enum PdfCore {
     }
 }
 
-// MARK: - Хелперы декодирования
+// MARK: - Decoding helpers
 
 enum PdfJson {
     static let decoder: JSONDecoder = {
@@ -68,7 +68,7 @@ enum PdfJson {
     }()
 
     static func decode<T: Decodable>(_ type: T.Type, from pointer: UnsafeMutablePointer<CChar>?, free: (UnsafeMutableRawPointer?) -> Void) throws -> T {
-        guard let pointer else { throw PdfCoreError.badResponse("пустой указатель") }
+        guard let pointer else { throw PdfCoreError.badResponse("null pointer") }
         defer { free(UnsafeMutableRawPointer(pointer)) }
         let data = Data(bytes: pointer, count: strlen(pointer))
         do {

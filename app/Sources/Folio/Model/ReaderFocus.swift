@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Ключ для меню: какая модель принадлежит активному окну ридера.
+/// Menu key: which model belongs to the reader's active window.
 struct ReaderFocusKey: FocusedValueKey {
     typealias Value = ReaderModel
 }
@@ -12,8 +12,8 @@ extension FocusedValues {
     }
 }
 
-/// Даёт модели знать своё окно: нужно для ⌘C/⌘D из мониторов событий,
-/// сохранения позиции при закрытии окна и отчётов.
+/// Lets the model know its window: needed for ⌘C/⌘D from the event monitors,
+/// for saving the position when the window closes, and for reports.
 struct WindowAccessor: NSViewRepresentable {
     let onWindow: (NSWindow?) -> Void
 

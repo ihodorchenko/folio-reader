@@ -60,6 +60,12 @@ cp "$BIN" "$STAGE/Contents/MacOS/Folio"
 cp "$ROOT/core/target/release/libpdfcore.dylib" "$STAGE/Contents/Frameworks/"
 cp "$ROOT/core/vendor/pdfium/libpdfium.dylib" "$STAGE/Contents/Frameworks/"
 cp "$ROOT/app/.build/AppIcon.icns" "$STAGE/Contents/Resources/AppIcon.icns"
+# UI localizations (English is the source language, Russian is in ru.lproj).
+if [ -d "$ROOT/app/Resources" ]; then
+  for lproj in "$ROOT/app/Resources"/*.lproj; do
+    [ -d "$lproj" ] && ditto "$lproj" "$STAGE/Contents/Resources/$(basename "$lproj")"
+  done
+fi
 cp "$ROOT/app/Bundle/Info.plist" "$STAGE/Contents/Info.plist"
 printf 'APPL????' > "$STAGE/Contents/PkgInfo"
 

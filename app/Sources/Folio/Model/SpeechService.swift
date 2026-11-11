@@ -3,18 +3,18 @@ import Foundation
 import NaturalLanguage
 import Observation
 
-/// Озвучка выделенного текста системным синтезатором речи (`AVSpeechSynthesizer`).
+/// Speaks selected text with the system speech synthesizer (`AVSpeechSynthesizer`).
 ///
-/// Сервис сам ничего не решает про выключенность: единственный вход `speak(...)`
-/// отказывается работать, пока в настройках не включена озвучка (по умолчанию — выключена).
+/// The service does not decide anything about being disabled: the single entry point `speak(...)`
+/// refuses to work until speech is enabled in settings (it is off by default).
 @Observable
 @MainActor
 final class SpeechService: NSObject {
     static let shared = SpeechService()
 
-    /// Читает ли сейчас синтезатор.
+    /// Whether the synthesizer is speaking right now.
     private(set) var isSpeaking = false
-    /// Последняя фраза — для индикации в UI и снапшот-логов.
+    /// Last phrase — for the UI indicator and snapshot logs.
     private(set) var lastSpokenText = ""
 
     private let synthesizer = AVSpeechSynthesizer()
@@ -25,7 +25,7 @@ final class SpeechService: NSObject {
         synthesizer.delegate = self
     }
 
-    /// Доступные системные голоса — для настроек и проверки окружения.
+    /// Available system voices — for settings and environment checks.
     var availableVoices: [AVSpeechSynthesisVoice] {
         AVSpeechSynthesisVoice.speechVoices()
             .sorted { $0.name < $1.name }
@@ -33,23 +33,23 @@ final class SpeechService: NSObject {
 
     var defaultVoiceDescription: String {
         let voice = Self.voice(for: nil, hint: nil)
-        return voice.map { "\($0.name) (\($0.language))" } ?? "системный по умолчанию"
+        return voice.map { "\($0.name) (\($0.language))" } ?? L10n.t("system default")
     }
 
-    // MARK: - Озвучка
+    // MARK: - Speech
 
-    /// Озвучить текст. Возвращает `false`, если озвучка выключена в настройках
-    /// или читать нечего — вызывающая сторона решает, что показать пользователю.
+    /// Speak text. Returns `false` if speech is disabled in settings
+    /// or there is nothing to read — the caller decides what to show the user.
     @discardableResult
     func speak(_ text: String, languageHint: String? = nil) -> Bool {
         let settings = SettingsStore.shared
         guard settings.speechEnabled else {
-            folioLog("speech: озвучка выключена в настройках — читать не буду")
+            folioLog("speech: disabled in settings — not reading")
             return false
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            folioLog("speech: пустой текст — читать нечего")
+            folioLog("speech: empty text — nothing to read")
             return false
         }
         if synthesizer.isSpeaking {
@@ -68,7 +68,7 @@ final class SpeechService: NSObject {
         lastSpokenText = trimmed
         isSpeaking = true
         synthesizer.speak(utterance)
-        folioLog("speech: читаю \(trimmed.count) символов, голос=\(utterance.voice?.name ?? "по умолчанию") (\(utterance.voice?.language ?? "?")): «\(String(trimmed.prefix(80)))»")
+        folioLog("speech: reading \(trimmed.count) characters, voice=\(utterance.voice?.name ?? "default") (\(utterance.voice?.language ?? "?")): \"\(String(trimmed.prefix(80)))\"")
         return true
     }
 
@@ -76,13 +76,13 @@ final class SpeechService: NSObject {
         guard synthesizer.isSpeaking else { return }
         synthesizer.stopSpeaking(at: .immediate)
         isSpeaking = false
-        folioLog("speech: остановлено пользователем")
+        folioLog("speech: stopped by user")
     }
 
-    // MARK: - Подбор голоса
+    // MARK: - Voice selection
 
-    /// Голос по языку текста: сначала подсказка вызывающей стороны (язык документа),
-    /// затем автоопределение языка фразы, в конце — системная локаль.
+    /// Voice by the text language: first the caller's hint (the document language),
+    /// then automatic detection of the phrase language, and finally the system locale.
     static func voice(for text: String?, hint: String?) -> AVSpeechSynthesisVoice? {
         if let hint, !hint.isEmpty, let voice = bestVoice(matching: hint) {
             return voice
@@ -99,8 +99,8 @@ final class SpeechService: NSObject {
             ?? AVSpeechSynthesisVoice(language: nil)
     }
 
-    /// `AVSpeechSynthesisVoice(language:)` требует полный тег (`ru-RU`), поэтому для
-    /// короткого кода (`ru`) ищем любой установленный голос этого языка.
+    /// `AVSpeechSynthesisVoice(language:)` requires a full tag (`ru-RU`), so for a
+    /// short code (`ru`) we look for any installed voice of that language.
     private static func bestVoice(matching tag: String) -> AVSpeechSynthesisVoice? {
         if let exact = AVSpeechSynthesisVoice(language: tag) { return exact }
         let base = tag.split(separator: "-").first.map(String.init)?.lowercased() ?? tag.lowercased()
@@ -120,7 +120,7 @@ extension SpeechService: AVSpeechSynthesizerDelegate {
                                        didFinish utterance: AVSpeechUtterance) {
         Task { @MainActor in
             self.isSpeaking = false
-            folioLog("speech: дочитано")
+            folioLog("speech: finished")
         }
     }
 

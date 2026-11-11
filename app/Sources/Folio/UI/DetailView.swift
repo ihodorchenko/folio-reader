@@ -5,7 +5,7 @@ enum ScrollCoordinateSpace {
     static let pages = "folio.pages"
 }
 
-/// Координаты нижних/верхних краёв страниц внутри скролла (для currentPage).
+/// Coordinates of the bottom/top edges of pages inside the scroll (for currentPage).
 struct PageFramesKey: PreferenceKey {
     static var defaultValue: [Int: CGRect] = [:]
     static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
@@ -13,7 +13,7 @@ struct PageFramesKey: PreferenceKey {
     }
 }
 
-/// Непрерывный вертикальный скролл страниц с ленивой загрузкой.
+/// Continuous vertical page scroll with lazy loading.
 struct DetailView: View {
     let model: ReaderModel
 
@@ -41,12 +41,12 @@ struct DetailView: View {
         .background(Color(nsColor: .underPageBackgroundColor))
     }
 
-    // MARK: - Скролл страниц
+    // MARK: - Page scrolling
 
     private var pageScrollView: some View {
         ScrollViewReader { proxy in
-            // Обе оси: при зуме больше fit-width страница должна прокручиваться
-            // и по горизонтали (как в Preview), иначе правый край обрезается.
+            // Both axes: when zoomed beyond fit-width the page must scroll
+            // horizontally too (like Preview), otherwise the right edge is clipped.
             ScrollView([.vertical, .horizontal]) {
                 LazyVStack(spacing: FolioUI.pageSpacing) {
                     ForEach(0..<max(model.pageCount, 0), id: \.self) { page in
@@ -93,7 +93,7 @@ struct DetailView: View {
         if let bbox = request.bbox, pageHeight > 0 {
             fraction = min(max(Double(bbox.y) / pageHeight, 0), 1)
         }
-        folioLog("scroll: страница \(page + 1), доля \(String(format: "%.2f", fraction)), token=\(request.token)")
+        folioLog("scroll: page \(page + 1), fraction \(String(format: "%.2f", fraction)), token=\(request.token)")
         withAnimation(.easeInOut(duration: 0.28)) {
             proxy.scrollTo(page, anchor: UnitPoint(x: 0.5, y: fraction))
         }
@@ -106,8 +106,8 @@ struct DetailView: View {
             abs(lhs.value.midY - center) < abs(rhs.value.midY - center)
         }) else { return }
         let frame = best.value
-        // Активный заголовок определяем по верхней части вьюпорта (≈25% высоты) —
-        // так он совпадает с тем, что читатель видит на экране, а не с центром.
+        // The active heading is determined by the upper part of the viewport (≈25% of its height) —
+        // so it matches what the reader sees on screen rather than the center.
         let anchorY = min(viewportHeight * 0.25, 260)
         let progress = frame.height > 1 ? (anchorY - frame.minY) / frame.height : 0
         model.updateVisiblePage(best.key, progress: Double(min(max(progress, 0), 1)))
@@ -122,27 +122,27 @@ struct DetailView: View {
             .onEnded { _ in pinchBaseZoom = 0 }
     }
 
-    // MARK: - Пустое состояние
+    // MARK: - Empty state
 
     private var emptyState: some View {
         VStack(spacing: 16) {
             Image(systemName: "doc.richtext")
                 .font(.system(size: 52, weight: .light))
                 .foregroundStyle(.tertiary)
-            Text("Документ не открыт")
+            Text(L10n.t("No Document Open"))
                 .font(.title3.weight(.semibold))
-            Text("Откройте PDF: ⌘O, перетащите файл в окно\nили запустите Folio с путём к файлу.")
+            Text(L10n.t("Open a PDF with ⌘O, drag a file into the window,\nor launch Folio with a file path."))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            Button("Открыть PDF…") { model.presentOpenPanel() }
+            Button(L10n.t("Open PDF…")) { model.presentOpenPanel() }
                 .controlSize(.large)
                 .padding(.top, 4)
 
             let recent = RecentDocumentsStore.shared.documents
             if !recent.isEmpty {
                 VStack(spacing: 4) {
-                    Text("Недавние")
+                    Text(L10n.t("Recent"))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     ForEach(recent.prefix(6)) { document in
@@ -175,7 +175,7 @@ struct DetailView: View {
     }
 }
 
-// MARK: - Одна страница в скролле
+// MARK: - One page in the scroll
 
 struct PageCard: View {
     let model: ReaderModel
@@ -212,7 +212,7 @@ struct PageCard: View {
                                            value: [page: geo.frame(in: .named(ScrollCoordinateSpace.pages))])
                 }
             )
-            .help("Страница \(page + 1)")
+            .help(L10n.t("Page %ld", page + 1))
             .task(id: model.docIdentity + ":" + String(page)) {
                 model.requestLayout(page)
                 model.prefetch(around: page)

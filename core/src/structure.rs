@@ -1,5 +1,5 @@
-//! Структура документа: outline из bookmarks, structure tree (tagged PDF),
-//! уровни заголовков по всему документу, title, документные метрики, поиск.
+//! Document structure: outline from bookmarks, structure tree (tagged PDF),
+//! heading levels across the document, title, document metrics, search.
 
 use crate::classify::{classify_line, ClassifiedLine, ClassifyCtx};
 use crate::ffi::*;
@@ -16,7 +16,7 @@ pub struct Analysis {
 // Structure tree (tagged PDF)
 // ---------------------------------------------------------------------------
 
-/// (есть ли structure tree, уровни H1..H6 в порядке обхода).
+/// (whether there is a structure tree, H1..H6 levels in traversal order).
 pub fn collect_struct_heading_tags(p: &Pdfium, page: FPDF_PAGE) -> (bool, Vec<i32>) {
     unsafe {
         let tree = (p.FPDF_StructTree_GetForPage)(page);
@@ -175,13 +175,13 @@ unsafe fn outline_item(
 }
 
 // ---------------------------------------------------------------------------
-// Анализ документа
+// Document analysis
 // ---------------------------------------------------------------------------
 
 pub fn analyze(p: &Pdfium, doc: FPDF_DOCUMENT) -> Result<Analysis, String> {
     let page_count = unsafe { (p.FPDF_GetPageCount)(doc) };
     if page_count < 0 {
-        return Err("PDFium не смог определить число страниц".to_string());
+        return Err("PDFium could not determine the page count".to_string());
     }
     let mut extracts: Vec<text::PageExtract> = Vec::with_capacity(page_count as usize);
     for i in 0..page_count {
@@ -203,13 +203,13 @@ pub fn analyze(p: &Pdfium, doc: FPDF_DOCUMENT) -> Result<Analysis, String> {
         extracts.push(extracted?);
     }
 
-    // Некоторые PDF (Quartz/macOS print-to-PDF) рисуют содержимое с
-    // вертикальным отражением: страница в просмотрщике перевёрнута. Для
-    // порядка чтения и зон колонтитулов это надо учитывать.
+    // Some PDFs (Quartz/macOS print-to-PDF) draw their content vertically
+    // mirrored: the page appears upside down in a viewer. This must be
+    // taken into account for reading order and header/footer zones.
     let y_flipped = detect_y_flip(&extracts);
 
-    // Кегль символов уже приведён к визуальному (fs × масштаб char-матрицы);
-    // для вертикально отражённых PDF координаты нормализуются к «визуальным».
+    // Character sizes are already converted to visual (fs × char-matrix scale);
+    // for vertically mirrored PDFs the coordinates are normalized to "visual" ones.
     let mut pages: Vec<PageRaw> = Vec::with_capacity(extracts.len());
     for mut ex in extracts {
         if y_flipped {
@@ -343,8 +343,8 @@ pub fn analyze(p: &Pdfium, doc: FPDF_DOCUMENT) -> Result<Analysis, String> {
     Ok(Analysis { layouts, structure })
 }
 
-/// Документ нарисован с вертикальным отражением? Считаем знак `d` в
-/// char-матрицах: у вертикально отражённого текста он отрицательный.
+/// Is the document drawn vertically mirrored? We look at the sign of `d` in
+/// the char matrices: it is negative for vertically mirrored text.
 fn detect_y_flip(pages: &[PageExtract]) -> bool {
     let mut flipped = 0usize;
     let mut upright = 0usize;
@@ -363,8 +363,8 @@ fn detect_y_flip(pages: &[PageExtract]) -> bool {
     flipped > upright && flipped >= 5
 }
 
-/// Отсев ложных заголовков: дубликаты, мусор из подписей рисунков, слишком
-/// мелкий кегль без нумерации, эвристические заголовки после «References».
+/// Filter out false headings: duplicates, junk from figure captions, too
+/// small a font size without numbering, heuristic headings after «References».
 fn filter_heading_candidates(drafts: &mut [Vec<BlockDraft>], doc_body: f64) {
     let mut counts: HashMap<String, usize> = HashMap::new();
     for pg in drafts.iter() {
@@ -418,19 +418,19 @@ fn heading_text_ok(text: &str) -> bool {
     if n == 0 || n > 200 {
         return false;
     }
-    // Нумерацию («3.2.1 ») при оценке «текстовости» не учитываем.
+    // When estimating "textiness", ignore the numbering («3.2.1 »).
     let body = strip_leading_numbering(t);
     let bn = body.chars().count();
     let letters = body.chars().filter(|c| c.is_alphabetic()).count();
     if letters < 2 {
         return false;
     }
-    // доля букв: мусор из фигур/таблиц обычно «разбавлен» символами
+    // letter ratio: junk from figures/tables is usually "diluted" by symbols
     if bn >= 8 && (letters as f64) / (bn as f64) < 0.55 {
         return false;
     }
     let spaces = t.chars().filter(|c| c.is_whitespace()).count();
-    // слипшийся текст без пробелов — почти наверняка не заголовок
+    // text stuck together without spaces is almost certainly not a heading
     if spaces == 0 && n > 25 {
         return false;
     }
@@ -440,7 +440,7 @@ fn heading_text_ok(text: &str) -> bool {
     true
 }
 
-/// Отрезать ведущий номер («1», «3.2.1.», «A.») от заголовка.
+/// Strip the leading number («1», «3.2.1.», «A.») from a heading.
 fn strip_leading_numbering(t: &str) -> &str {
     let mut idx = 0;
     let mut saw_digit = false;
@@ -461,8 +461,8 @@ fn strip_leading_numbering(t: &str) -> &str {
     }
 }
 
-/// Число переходов «строчная → заглавная» внутри токенов: признак склейки
-/// нескольких подписей в одну строку.
+/// Number of «lowercase → uppercase» transitions inside tokens: a sign that
+/// several captions were glued into one line.
 fn camel_transitions(text: &str) -> usize {
     let mut count = 0;
     for token in text.split_whitespace() {
@@ -486,7 +486,7 @@ fn appendix_numbered(text: &str) -> bool {
         || t.to_lowercase().starts_with("приложение")
 }
 
-/// Разделы, которые по смыслу всегда верхнего уровня.
+/// Sections that are always top level by meaning.
 fn is_top_level_section_title(norm: &str) -> bool {
     const NAMES: &[&str] = &[
         "abstract",
@@ -560,8 +560,8 @@ fn detect_header_footer(pages: &[PageRaw]) -> HashMap<(i32, String), BlockKind> 
     out
 }
 
-/// Заголовок документа: самый крупный неnumbered heading в верхней половине
-/// первой страницы. Блок помечается `is_title` и исключается из headings.
+/// Document title: the largest unnumbered heading in the upper half of the
+/// first page. The block is marked `is_title` and excluded from headings.
 fn select_title(drafts: &mut [Vec<BlockDraft>], pages: &[PageRaw]) -> Option<String> {
     let page0 = drafts.first_mut()?;
     if page0.is_empty() {
@@ -584,7 +584,7 @@ fn select_title(drafts: &mut [Vec<BlockDraft>], pages: &[PageRaw]) -> Option<Str
         }
     }
     let idx = best?;
-    // Склеиваем соседние строки заголовка (перенос длинного title).
+    // Glue together adjacent heading lines (a long title wrapping).
     let mut parts: Vec<String> = Vec::new();
     let mut i = idx;
     while i < page0.len() {
@@ -638,7 +638,7 @@ fn assign_levels(
     outline: &[OutlineItem],
     tagged: bool,
 ) {
-    // Ранжирование кластеров стиля среди всех heading-кандидатов документа.
+    // Rank style clusters among all heading candidates of the document.
     let mut keys: Vec<StyleKey> = Vec::new();
     for pg in drafts.iter() {
         for d in pg.iter() {
@@ -709,7 +709,7 @@ fn assign_levels(
                         source = "outline";
                     }
                 }
-                // Abstract/References/Литература/Приложение — всегда верхний уровень.
+                // Abstract/References/Literature/Appendix are always top level.
                 if is_top_level_section_title(&t) {
                     level = 1;
                 }
@@ -806,7 +806,7 @@ fn confidence_of(d: &BlockDraft) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
-// Поиск
+// Search
 // ---------------------------------------------------------------------------
 
 pub fn search(
@@ -842,7 +842,7 @@ pub fn search(
         }
         let total = unsafe { (p.FPDFText_CountChars)(tp) };
         unsafe {
-            // flags = 0 → регистронезависимо (PDFium не учитывает регистр).
+            // flags = 0 → case-insensitive (PDFium does not match case).
             let find = (p.FPDFText_FindStart)(tp, qn.as_ptr(), 0, 0);
             if !find.is_null() {
                 let mut guard = 0;

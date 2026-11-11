@@ -1,9 +1,9 @@
 import Foundation
 import CoreGraphics
 
-// MARK: - Геометрия и типографика
-// Зеркало JSON-контракта из pdfreader/CONTRACT.md (раздел 3).
-// Координаты: точки PDF (1/72"), origin — левый верхний угол страницы, y вниз.
+// MARK: - Geometry and typography
+// Mirror of the JSON contract from pdfreader/CONTRACT.md (section 3).
+// Coordinates: PDF points (1/72"), origin at the top-left corner of the page, y down.
 
 struct PcRect: Codable, Hashable, Sendable {
     var x: Double
@@ -53,7 +53,7 @@ struct PcFont: Codable, Hashable, Sendable {
     static let unknown = PcFont(name: "", size: 10, bold: false, italic: false, monospace: false)
 }
 
-// MARK: - Слова, строки, блоки
+// MARK: - Words, lines, blocks
 
 struct PcWord: Codable, Hashable, Sendable {
     var text: String
@@ -74,19 +74,19 @@ struct PcLine: Codable, Hashable, Sendable {
 enum PcBlockKind: String, Codable, Sendable, CaseIterable {
     case body, heading, list, caption, table, code, header, footer, formula, quote, reference
 
-    var titleRu: String {
+    var localizedTitle: String {
         switch self {
-        case .body: return "Абзац"
-        case .heading: return "Заголовок"
-        case .list: return "Список"
-        case .caption: return "Подпись"
-        case .table: return "Таблица"
-        case .code: return "Код"
-        case .header: return "Колонтитул"
-        case .footer: return "Колонтитул"
-        case .formula: return "Формула"
-        case .quote: return "Цитата"
-        case .reference: return "Литература"
+        case .body: return L10n.t("Paragraph")
+        case .heading: return L10n.t("Heading")
+        case .list: return L10n.t("List")
+        case .caption: return L10n.t("Caption")
+        case .table: return L10n.t("Table")
+        case .code: return L10n.t("Code")
+        case .header: return L10n.t("Running Header")
+        case .footer: return L10n.t("Running Header")
+        case .formula: return L10n.t("Formula")
+        case .quote: return L10n.t("Quote")
+        case .reference: return L10n.t("References")
         }
     }
 
@@ -116,7 +116,7 @@ struct PcBlock: Codable, Hashable, Sendable {
     var confidence: Double
     var lines: [PcLine]
 
-    // Неизвестный kind от ядра не должен валить декодирование страницы.
+    // An unknown kind from the core must not break page decoding.
     private enum CodingKeys: String, CodingKey {
         case id, kind, level, text, bbox, font, confidence, lines
     }
@@ -152,7 +152,7 @@ struct PcPageLayout: Codable, Sendable {
     var pageRect: PcRect { PcRect(x: 0, y: 0, w: width, h: height) }
 }
 
-// MARK: - Структура документа
+// MARK: - Document structure
 
 struct PcHeading: Codable, Hashable, Sendable {
     var id: String

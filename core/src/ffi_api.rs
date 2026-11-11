@@ -1,5 +1,5 @@
-//! C ABI строго по CONTRACT.md §1. Каждый extern-вызов защищён `catch_unwind`,
-//! ошибки — в thread-local `last_error`.
+//! C ABI exactly per CONTRACT.md §1. Every extern call is protected by `catch_unwind`,
+//! errors go to the thread-local `last_error`.
 
 use crate::api::Document;
 use crate::ffi::{self, Pdfium};
@@ -30,7 +30,7 @@ fn clear_last_error() {
     });
 }
 
-/// Выполнить тело, поймав панику; при ошибке записать last_error и вернуть fallback.
+/// Run the body catching panics; on error record last_error and return fallback.
 fn guarded<T>(fallback: T, f: impl FnOnce() -> Result<T, String>) -> T {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(Ok(v)) => v,
@@ -39,7 +39,7 @@ fn guarded<T>(fallback: T, f: impl FnOnce() -> Result<T, String>) -> T {
             fallback
         }
         Err(_) => {
-            set_last_error("внутренняя паника pdfcore");
+            set_last_error("internal pdfcore panic");
             fallback
         }
     }
@@ -47,7 +47,7 @@ fn guarded<T>(fallback: T, f: impl FnOnce() -> Result<T, String>) -> T {
 
 unsafe fn doc_ref<'a>(doc: *const PcDocument) -> Result<&'a Document, String> {
     if doc.is_null() {
-        return Err("нулевой указатель PcDocument".to_string());
+        return Err("null PcDocument pointer".to_string());
     }
     Ok(&(*doc).doc)
 }
@@ -60,7 +60,7 @@ pub extern "C" fn pc_open(path: *const c_char) -> *mut PcDocument {
         }
         let path = unsafe { CStr::from_ptr(path) }
             .to_str()
-            .map_err(|_| "pc_open: путь не в UTF-8".to_string())?
+            .map_err(|_| "pc_open: path is not UTF-8".to_string())?
             .to_string();
         let doc = Document::open(&path)?;
         clear_last_error();
@@ -115,14 +115,14 @@ pub extern "C" fn pc_render_page(
 ) -> i32 {
     guarded(-1, || {
         if out_w.is_null() || out_h.is_null() || out_bgra.is_null() {
-            return Err("pc_render_page: нулевой out-указатель".to_string());
+            return Err("pc_render_page: null out pointer".to_string());
         }
         let d = unsafe { doc_ref(doc)? };
         let rendered = d.render_page(page, scale)?;
         let len = rendered.bgra.len();
         let mem = unsafe { malloc(len) };
         if mem.is_null() {
-            return Err("pc_render_page: не хватило памяти".to_string());
+            return Err("pc_render_page: out of memory".to_string());
         }
         unsafe {
             ptr::copy_nonoverlapping(rendered.bgra.as_ptr(), mem as *mut u8, len);
@@ -140,7 +140,7 @@ pub extern "C" fn pc_page_layout_json(doc: *const PcDocument, page: i32) -> *mut
         let d = unsafe { doc_ref(doc)? };
         let json = d.page_layout_json(page)?;
         Ok(CString::new(json)
-            .map_err(|_| "JSON содержит NUL".to_string())?
+            .map_err(|_| "JSON contains NUL".to_string())?
             .into_raw())
     })
 }
@@ -151,7 +151,7 @@ pub extern "C" fn pc_document_structure_json(doc: *const PcDocument) -> *mut c_c
         let d = unsafe { doc_ref(doc)? };
         let json = d.document_structure_json()?;
         Ok(CString::new(json)
-            .map_err(|_| "JSON содержит NUL".to_string())?
+            .map_err(|_| "JSON contains NUL".to_string())?
             .into_raw())
     })
 }
@@ -164,11 +164,11 @@ pub extern "C" fn pc_search_json(doc: *const PcDocument, query: *const c_char) -
         }
         let q = unsafe { CStr::from_ptr(query) }
             .to_str()
-            .map_err(|_| "pc_search_json: query не в UTF-8".to_string())?;
+            .map_err(|_| "pc_search_json: query is not UTF-8".to_string())?;
         let d = unsafe { doc_ref(doc)? };
         let json = d.search_json(q)?;
         Ok(CString::new(json)
-            .map_err(|_| "JSON содержит NUL".to_string())?
+            .map_err(|_| "JSON contains NUL".to_string())?
             .into_raw())
     })
 }
@@ -215,7 +215,7 @@ extern "C" {
     fn free(ptr: *mut c_void);
 }
 
-/// Небольшая проверка, что FFI-таблица грузится (используется тестами).
+/// Small check that the FFI table loads (used by tests).
 pub fn ffi_available() -> bool {
     ffi::pdfium().is_ok() && ffi::pdfium_locked().is_ok()
 }

@@ -199,7 +199,7 @@ fn sample_ru_structure_flipped_document() {
         .expect("page number");
     assert_eq!(footer.kind, BlockKind::Header);
 
-    // Reading order: title → 1. Введение → 1.1 → 1.2.
+    // Reading order: title → section 1 → 1.1 → 1.2.
     let mut y = f64::NEG_INFINITY;
     for h in &st.headings {
         assert!(

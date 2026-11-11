@@ -1,20 +1,20 @@
 import Foundation
 import Observation
 
-// MARK: - Язык перевода
+// MARK: - Translation language
 
-/// Язык пары перевода. Пустой `identifier` — «определять автоматически» (только для источника).
+/// Translation-pair language. An empty `identifier` means "detect automatically" (source only).
 struct TranslateLanguage: Identifiable, Hashable, Sendable {
-    /// BCP-47 (`en-US`) или пустая строка для автоопределения.
+    /// BCP-47 (`en-US`) or an empty string for automatic detection.
     let identifier: String
-    /// Человеческое название для меню/настроек (локализовано системой).
+    /// Human-readable name for menus/settings (localized by the system).
     let fallbackName: String
 
     var id: String { identifier }
     var isAuto: Bool { identifier.isEmpty }
 
     var displayName: String {
-        if isAuto { return "Определять автоматически" }
+        if isAuto { return L10n.t("Detect automatically") }
         let locale = Locale.current
         if let name = locale.localizedString(forIdentifier: identifier), !name.isEmpty {
             return name
@@ -26,15 +26,15 @@ struct TranslateLanguage: Identifiable, Hashable, Sendable {
         return fallbackName
     }
 
-    static let auto = TranslateLanguage(identifier: "", fallbackName: "Авто")
+    static let auto = TranslateLanguage(identifier: "", fallbackName: "Auto")
 
-    /// Разумный список: языки, которые поддерживает системный движок перевода,
-    /// с явными региональными вариантами там, где это важно (en-US по умолчанию).
+    /// A sensible list: languages supported by the system translation engine,
+    /// with explicit regional variants where it matters (en-US by default).
     static let all: [TranslateLanguage] = [
         TranslateLanguage(identifier: "en-US", fallbackName: "English (US)"),
         TranslateLanguage(identifier: "en-GB", fallbackName: "English (UK)"),
-        TranslateLanguage(identifier: "ru-RU", fallbackName: "Русский"),
-        TranslateLanguage(identifier: "uk-UA", fallbackName: "Украинская"),
+        TranslateLanguage(identifier: "ru-RU", fallbackName: L10n.t("Russian")),
+        TranslateLanguage(identifier: "uk-UA", fallbackName: L10n.t("Ukrainian")),
         TranslateLanguage(identifier: "de-DE", fallbackName: "Deutsch"),
         TranslateLanguage(identifier: "fr-FR", fallbackName: "Français"),
         TranslateLanguage(identifier: "es-ES", fallbackName: "Español"),
@@ -60,7 +60,7 @@ struct TranslateLanguage: Identifiable, Hashable, Sendable {
         TranslateLanguage(identifier: "zh-Hant", fallbackName: "繁體中文"),
     ]
 
-    /// Источник может быть «авто», цель — нет.
+    /// The source may be "auto"; the target may not.
     static var sourceChoices: [TranslateLanguage] { [auto] + all }
     static var targetChoices: [TranslateLanguage] { all }
 
@@ -71,11 +71,11 @@ struct TranslateLanguage: Identifiable, Hashable, Sendable {
     }
 }
 
-// MARK: - Настройки
+// MARK: - Settings
 
-/// Пользовательские настройки. Хранятся в `UserDefaults` (ключи `Folio.*`),
-/// поэтому переживают перезапуск; значения по умолчанию — по продуктовому контракту:
-/// озвучка выключена, перевод `en-US → ru-RU`.
+/// User settings. Stored in `UserDefaults` (`Folio.*` keys), so they survive a
+/// relaunch; the defaults follow the product contract: speech off, translation
+/// `en-US → ru-RU`.
 @Observable
 @MainActor
 final class SettingsStore {
@@ -91,19 +91,19 @@ final class SettingsStore {
     static let defaultSourceID = "en-US"
     static let defaultTargetID = "ru-RU"
 
-    // MARK: Озвучка
+    // MARK: Speech
 
-    /// По умолчанию **выключена**: пока пользователь не включит её в настройках,
-    /// ни меню, ни контекстное меню не читают текст вслух.
+    /// **Off** by default: until the user enables it in settings,
+    /// neither the menu nor the context menu reads text aloud.
     var speechEnabled: Bool {
         didSet {
             guard !isLoading else { return }
             defaults.set(speechEnabled, forKey: Key.speechEnabled)
-            folioLog("settings: озвучка \(speechEnabled ? "включена" : "выключена")")
+            folioLog("settings: speech \(speechEnabled ? "enabled" : "disabled")")
         }
     }
 
-    /// Скорость речи AVSpeechUtterance (0…1, 0.5 — системная по умолчанию).
+    /// AVSpeechUtterance speech rate (0…1; 0.5 is the system default).
     var speechRate: Double {
         didSet {
             let clamped = min(max(speechRate, 0.3), 0.7)
@@ -113,13 +113,13 @@ final class SettingsStore {
         }
     }
 
-    // MARK: Перевод
+    // MARK: Translation
 
     var translateSourceID: String {
         didSet {
             guard !isLoading, translateSourceID != oldValue else { return }
             defaults.set(translateSourceID, forKey: Key.translateSource)
-            folioLog("settings: язык источника → \(TranslateLanguage.named(translateSourceID).displayName)")
+            folioLog("settings: source language → \(TranslateLanguage.named(translateSourceID).displayName)")
         }
     }
 
@@ -127,14 +127,14 @@ final class SettingsStore {
         didSet {
             guard !isLoading, translateTargetID != oldValue else { return }
             defaults.set(translateTargetID, forKey: Key.translateTarget)
-            folioLog("settings: язык перевода → \(TranslateLanguage.named(translateTargetID).displayName)")
+            folioLog("settings: target language → \(TranslateLanguage.named(translateTargetID).displayName)")
         }
     }
 
     var translateSource: TranslateLanguage { TranslateLanguage.named(translateSourceID) }
     var translateTarget: TranslateLanguage { TranslateLanguage.named(translateTargetID) }
 
-    /// Подпись пары для тултипов и логов: «Английский (США) → Русский».
+    /// Pair label for tooltips and logs: "English (US) → Russian".
     var translationPairTitle: String {
         "\(translateSource.displayName) → \(translateTarget.displayName)"
     }
@@ -159,13 +159,13 @@ final class SettingsStore {
         isLoading = false
     }
 
-    /// Возврат к заводской паре EN (US) → RU.
+    /// Reset to the factory pair EN (US) → RU.
     func resetTranslationPair() {
         translateSourceID = Self.defaultSourceID
         translateTargetID = Self.defaultTargetID
     }
 
-    /// Проверка «пользователь изменил выбор — он сохранён» (используется в снапшот-приёмке).
+    /// "The user changed the choice — it was saved" check (used in snapshot acceptance).
     func reloadFromDisk() -> (source: String, target: String, speechEnabled: Bool, speechRate: Double) {
         (
             source: defaults.string(forKey: Key.translateSource) ?? Self.defaultSourceID,

@@ -1,15 +1,15 @@
 import AppKit
 
-/// Журнал окон и событий жизненного цикла — для headless-проверок.
+/// Window and lifecycle event log — for headless checks.
 ///
-/// Включается либо аргументом `--window-report <path>`, либо (надёжнее для
-/// запуска из Finder) ключами в UserDefaults:
+/// Enabled either by the `--window-report <path>` argument or (more reliably for
+/// launching from Finder) by UserDefaults keys:
 ///
 ///     defaults write dev.folio.reader Folio.windowReport -bool YES
 ///     defaults write dev.folio.reader Folio.windowReportPath /tmp/folio-windows.txt
 ///
-/// Пишет последовательность событий (запуск, open-события, появление сцен,
-/// открытие документов) и снимок состояния окон раз в секунду.
+/// Writes a sequence of events (launch, open events, scene appearances,
+/// document opens) and a snapshot of the window state once a second.
 @MainActor
 enum WindowReport {
     static var isEnabled: Bool {
@@ -29,7 +29,7 @@ enum WindowReport {
     private static var events: [String] = []
     private static var timer: Timer?
 
-    // MARK: - События
+    // MARK: - Events
 
     static func event(_ message: @autoclosure () -> String) {
         guard isEnabled else { return }
@@ -41,7 +41,7 @@ enum WindowReport {
 
     static func startIfNeeded() {
         guard isEnabled else { return }
-        event("отчёт включён")
+        event("report enabled")
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             MainActor.assumeIsolated {
@@ -61,7 +61,7 @@ enum WindowReport {
         return result
     }
 
-    // MARK: - Снимок состояния
+    // MARK: - State snapshot
 
     static func write(reason: String) {
         guard isEnabled else { return }
@@ -91,7 +91,7 @@ enum WindowReport {
             let titles = recentMenu.items.filter { !$0.isSeparatorItem }.map { $0.title }
             lines.append("recentMenu (\(titles.count)): \(titles.joined(separator: " | "))")
         } else {
-            lines.append("recentMenu: нет")
+            lines.append("recentMenu: none")
         }
         if !events.isEmpty {
             lines.append("events:")
