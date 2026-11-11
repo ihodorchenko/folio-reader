@@ -184,6 +184,12 @@ same code path.
 When the right click lands inside a selection, the dictionary opens for the word taken from the
 selection (the same thesaurus Preview shows), not for whatever pixel happens to be under the cursor.
 
+One gesture produces one lookup. Force Touch keeps sending `pressureChange` events on stage 2 while
+the finger presses, and every extra `showDefinition` reloads the panel (it visibly flickers between
+the dictionary list and the entries), so the gesture only fires on the transition into stage 2.
+A 0.5 s cooldown merges overlapping sources — force click, `⌘D`, the context menu — and `⌘D`
+auto-repeat is ignored.
+
 ---
 
 ## Speech and translation
@@ -329,6 +335,10 @@ setting is off, and the panel is filled with demo text.
 - `cargo test` — unit tests for grouping plus integration tests on real PDFs (28 tests).
 - The app: snapshots of `attention.pdf` at 100/150/200%, Cyrillic document, `no-text.pdf`,
   document switching (cache invalidation), dictionary path and `⌘C` — verified via logs.
+- Dictionary invocation: `--snapshot` feeds a pressure sequence `[1, 2, 2, 2, 2, 2]` and asserts
+  that `showDefinition` runs exactly once, then verifies that two gestures inside the cooldown
+  produce one lookup and that a press after the pause opens the panel again (the `⌘D` path is
+  checked too, after the cooldown expires).
 - Rendering race: `--snapshot` starts a `prefetch` for a page and immediately requests the
   same page, asserting that the image is delivered through the waiter callback. The multi-window
   scenario from the bug report (two books open, one closed, the first book reopened at 205% zoom)

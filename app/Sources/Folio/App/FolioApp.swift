@@ -126,6 +126,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     private static func handleDictionaryKey(_ event: NSEvent) -> Bool {
         guard isCommandKey(event, "d") else { return false }
+        // Удержание ⌘D не должно открывать словарь повторно.
+        guard !event.isARepeat else { return true }
         guard let model = ReaderModel.active else { return false }
         model.performLookUp()
         return true

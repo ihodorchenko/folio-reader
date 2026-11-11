@@ -424,6 +424,7 @@ final class PageCanvasView: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
+        lastPressureStage = 0
         hoverWordIndex = nil
         lastHoverPoint = nil
         needsDisplay = true
@@ -445,6 +446,7 @@ final class PageCanvasView: NSView {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         activateIfKeyWindow()
+        lastPressureStage = 0
         let local = convert(event.locationInWindow, from: nil)
         let point = pagePoint(from: local)
         mouseDownPoint = point
@@ -475,6 +477,7 @@ final class PageCanvasView: NSView {
         defer {
             dragStartWord = nil
             isDragging = false
+            lastPressureStage = 0
             needsDisplay = true
         }
         guard !isDragging else { return }
@@ -484,9 +487,32 @@ final class PageCanvasView: NSView {
 
     // MARK: - Force click → системный словарь
 
+    /// Пауза между вызовами словаря: force click, ⌘D и контекстное меню могут
+    /// прийти почти одновременно, а каждый `showDefinition` перезагружает панель.
+    static let lookUpCooldown: TimeInterval = 0.5
+
+    /// Последняя стадия нажатия. Force Touch продолжает слать события на той же
+    /// стадии, пока палец давит, поэтому жест должен срабатывать только на переходе в stage 2.
+    private var lastPressureStage = 0
+    /// Момент последнего реального открытия словаря (systemUptime).
+    private var lastLookUpTime: TimeInterval = 0
+    /// Сколько раз реально вызывали `showDefinition` — для приёмки.
+    private(set) var lookUpCallCount = 0
+
     override func pressureChange(with event: NSEvent) {
         folioLog("force-click: pressureChange stage=\(event.stage) pressure=\(String(format: "%.2f", event.pressure)) page=\(pageIndex + 1)")
-        guard event.stage == 2 else { return }
+        handlePressureStage(event.stage, pressure: Double(event.pressure))
+    }
+
+    /// Один жест — один словарь: реагируем только на переход в stage 2.
+    func handlePressureStage(_ stage: Int, pressure: Double = 0) {
+        let previous = lastPressureStage
+        lastPressureStage = stage
+        guard stage == 2 else { return }
+        guard previous != 2 else {
+            folioLog("force-click: повторное stage 2 (pressure=\(String(format: "%.2f", pressure))) — жест уже обработан")
+            return
+        }
         handleDeepClick()
     }
 
@@ -568,6 +594,17 @@ final class PageCanvasView: NSView {
                                y: CGFloat(ref.baselineY) * zoom)
         let clamped = CGPoint(x: min(max(baseline.x, 0), max(bounds.width - 1, 0)),
                               y: min(max(baseline.y, 0), max(bounds.height - 1, 0)))
+        // Один словарь на короткий интервал: несколько источников (сильное нажатие,
+        // ⌘D, контекстное меню) не должны перезагружать панель несколько раз.
+        let now = ProcessInfo.processInfo.systemUptime
+        let sinceLast = now - lastLookUpTime
+        if sinceLast < Self.lookUpCooldown {
+            folioLog("lookup: пропуск повторного вызова (source=\(source), \(String(format: "%.2f", sinceLast)) с после прошлого)")
+            return
+        }
+        lastLookUpTime = now
+        lookUpCallCount += 1
+
         let pageX = point.map { String(format: "%.1f", $0.x) } ?? "-"
         let pageY = point.map { String(format: "%.1f", $0.y) } ?? "-"
         folioLog("lookup: page=\(pageIndex + 1) word=«\(text)» point=(\(pageX), \(pageY)) baseline=(\(String(format: "%.1f", clamped.x)), \(String(format: "%.1f", clamped.y))) source=\(source) → showDefinition(for:at:)")
@@ -769,7 +806,7 @@ final class PageCanvasView: NSView {
     /// Состояние рендера страницы одной строкой — для отладочного отчёта.
     var debugSummary: String {
         let pixels = debugImagePixelSize.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil"
-        return "page=\(pageIndex + 1) image=\(pixels) layout=\(layoutInfo != nil) zoom=\(String(format: "%.2f", zoom)) doc=\(documentIdentity.prefix(18))"
+        return "page=\(pageIndex + 1) image=\(pixels) layout=\(layoutInfo != nil) zoom=\(String(format: "%.2f", zoom)) lookups=\(lookUpCallCount) doc=\(documentIdentity.prefix(18))"
     }
 
     /// Подсветка слова как при наведении мышью (для снапшота).
@@ -795,6 +832,20 @@ final class PageCanvasView: NSView {
         folioLog("selftest: эмуляция force-click (stage 2) в точке (\(String(format: "%.1f", point.x)), \(String(format: "%.1f", point.y))) — вызываем тот же handleDeepClick → lookUp")
         handleDeepClick()
     }
+    /// Только для снапшот-приёмки: сбросить состояние жестов и счётчик словаря.
+    func debugResetLookUpState() {
+        lastPressureStage = 0
+        lastLookUpTime = 0
+        lookUpCallCount = 0
+    }
+
+    /// Только для снапшот-приёмки: скормить последовательность стадий нажатия.
+    func debugFeedPressureStages(_ stages: [Int]) {
+        for stage in stages {
+            handlePressureStage(stage, pressure: stage == 2 ? 1.0 : 0.5)
+        }
+    }
+
     /// Только для снапшот-приёмки: пункты контекстного меню в точке слова.
     func debugContextMenuTitles(atWord index: Int) -> [String] {
         guard let geometry, !geometry.isEmpty else { return [] }

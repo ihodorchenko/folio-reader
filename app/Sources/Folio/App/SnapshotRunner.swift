@@ -292,7 +292,33 @@ enum SnapshotRunner {
         forceLayout(window)
         capture(window: window, name: "selection.png", options: options)
 
+        // Force Touch шлёт несколько событий stage 2 подряд — словарь должен открыться один раз.
+        pageView.debugResetLookUpState()
+        pageView.debugFeedPressureStages([1, 2, 2, 2, 2, 2])
+        let singleGestureCalls = pageView.lookUpCallCount
+        folioLog("snapshot: сила нажатия (1,2,2,2,2,2) — вызовов словаря=\(singleGestureCalls) (ожидаем 1)")
+        if singleGestureCalls != 1 {
+            folioLog("snapshot: ОШИБКА — повторные stage 2 открывают словарь несколько раз")
+        }
+
+        // Два жеста подряд в пределах кулдауна не должны перезагружать панель.
+        pageView.debugResetLookUpState()
+        pageView.debugFeedPressureStages([1, 2])
+        pageView.debugFeedPressureStages([1, 2])
+        folioLog("snapshot: два жеста подряд — вызовов=\(pageView.lookUpCallCount) (ожидаем 1, кулдаун \(PageCanvasView.lookUpCooldown) с)")
+        if pageView.lookUpCallCount != 1 {
+            folioLog("snapshot: ОШИБКА — кулдаун словаря не сработал")
+        }
+        pump(PageCanvasView.lookUpCooldown + 0.25)
+        pageView.debugFeedPressureStages([1, 2])
+        folioLog("snapshot: после паузы — вызовов=\(pageView.lookUpCallCount) (ожидаем 2)")
+        if pageView.lookUpCallCount != 2 {
+            folioLog("snapshot: ОШИБКА — после паузы словарь не открылся")
+        }
+
         // ⌘D при наличии выделения должен взять слово из выделения, а не из hover.
+        // Даём кулдауну словаря истечь, иначе ⌘D-проверка будет троттлиться.
+        pump(PageCanvasView.lookUpCooldown + 0.25)
         PageCanvasView.active = pageView
         folioLog("snapshot: проверяем ⌘D при выделении (ожидаем слово из выделения, source=selection)")
         model.performLookUp()
