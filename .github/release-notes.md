@@ -6,9 +6,9 @@ the system thesaurus on a force click — in the spirit of Preview and Books.
 ![Folio](https://raw.githubusercontent.com/ihodorchenko/folio-reader/main/docs/root.png)
 
 <!--
-Draft release notes. The release workflow fills the placeholders below (version, checksum, commit,
-CI run) and creates a DRAFT release. Add a short "What's new" section for this version and review the
-asset before publishing.
+Manual release-notes template. Copy it, replace {{VERSION}}, {{SHA256}} and {{COMMIT}}, add the
+"What's new" section and publish the release by hand (see docs/releasing.md). There is no automated
+release workflow.
 -->
 
 ## What's new in {{VERSION}}
@@ -39,7 +39,8 @@ asset before publishing.
 ## Install
 
 1. Unzip `Folio.app.zip` and move `Folio.app` to `/Applications`.
-2. {{SIGNING_NOTE}}
+2. The bundle is **signed with a Developer ID and notarized by Apple** — it opens with a normal
+   double click, no Gatekeeper bypass is needed.
 3. Open PDFs with **Open With → Folio**, by dragging them into the window, or with `⌘O`.
 
 **Requires macOS 14+ and an arm64 Mac** (Apple Silicon). The archive is a thin arm64 build.
@@ -47,13 +48,13 @@ asset before publishing.
 ## Verification
 
 - CI (macOS 15, Swift 6.0): Rust unit + integration tests, core acceptance (**86/86**) and the app
-  build are green for this commit; the same job publishes the bundle as a workflow artifact.
-- The release bundle is re-checked here: code signature (`codesign --verify --deep --strict`),
-  bundle version and the attached SHA-256.
+  build are green for this commit.
+- The release bundle is built and notarized locally in Xcode; it is re-checked with
+  `codesign --verify --deep --strict`, `spctl --assess` and `xcrun stapler validate`, and the
+  attached SHA-256 is computed from the published zip.
 
 ## Known limitations
 
-{{SIGNING_LIMITATION}}
 - no annotations, forms, links or printing; PDF bookmarks are only used as a heading source;
 - selection is limited to a single page; scans without a text layer are out of scope (no OCR);
 - translation needs macOS 15+ and the system language models; speech depends on system voices;
@@ -61,4 +62,4 @@ asset before publishing.
 
 **SHA-256** `Folio.app.zip`: `{{SHA256}}`
 
-Built from `{{COMMIT}}` — [CI run]({{CI_RUN}}).
+Built from [`{{COMMIT}}`](https://github.com/ihodorchenko/folio-reader/commit/{{COMMIT}}).

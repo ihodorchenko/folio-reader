@@ -43,16 +43,16 @@ Prebuilt **Folio** for Apple Silicon: [latest release](https://github.com/ihodor
 The archive is a thin **arm64** build and needs **macOS 14+**. To build from source see
 [Quick start](#quick-start).
 
-### Automated builds and releases
+### CI
 
-- Every green build on `main` uploads the signed `Folio.app.zip` plus its SHA-256 as a workflow
-  artifact (`Actions → CI → Artifacts`, kept for 14 days).
-- Pushing a tag `vX.Y.Z` runs [`.github/workflows/release.yml`](.github/workflows/release.yml): it
-  builds the bundle with the version taken from the tag, verifies the signature, the version and the
-  bundled localizations, and creates a **draft** GitHub release with `Folio.app.zip` and
-  `Folio.app.zip.sha256`. The notes are rendered from
-  [`.github/release-notes.md`](.github/release-notes.md) with the version, checksum, commit and CI
-  run filled in — adding the "What's new" section and publishing stay manual.
+- Every push to `main` and every pull request runs the Rust tests, the core acceptance suite and both
+  builds (`swift build` and `scripts/build-app.sh`). Green builds on `main` upload an **ad-hoc**
+  `Folio.app.zip` as a workflow artifact (`Actions → CI → Artifacts`, kept for 14 days) — useful for
+  smoke tests, not for distribution: a notarized build needs the Developer ID certificate and is
+  produced locally in Xcode.
+- **Releases are manual.** There is no tag-triggered workflow: bump the version, build and notarize
+  the app in Xcode, verify it, and publish the release by hand — see
+  [Releasing](docs/releasing.md).
 
 ## Signing and notarization
 
@@ -111,28 +111,6 @@ certificate is not visible to `codesign`/`notarytool`).
    the ticket and only then packs `dist/Folio.app.zip`. Instead of the keychain profile it also
    accepts `FOLIO_NOTARY_APPLE_ID` / `FOLIO_NOTARY_TEAM_ID` / `FOLIO_NOTARY_PASSWORD`, or an API key
    via `FOLIO_NOTARY_KEY_PATH` / `FOLIO_NOTARY_KEY_ID` / `FOLIO_NOTARY_ISSUER`.
-
-### Notarization in CI
-
-Add these secrets under *Settings → Secrets and variables → Actions* and the release workflow signs
-and notarizes the bundle automatically:
-
-| secret | contents |
-|---|---|
-| `MACOS_CERT_P12` | base64 of the exported **Developer ID Application** `.p12` (certificate + key) |
-| `MACOS_CERT_PASSWORD` | password of that `.p12` |
-| `KEYCHAIN_PASSWORD` | any random string for the temporary CI keychain |
-| `NOTARY_APPLE_ID`, `NOTARY_TEAM_ID`, `NOTARY_PASSWORD` | Apple ID, team id, app-specific password — **or** |
-| `NOTARY_KEY_P8`, `NOTARY_KEY_ID`, `NOTARY_ISSUER` | base64 of the App Store Connect `.p8` key, its key id and issuer id |
-
-Export the certificate where it is installed: *Keychain Access → right-click the identity → Export…
-(.p12)*, then `base64 -i DeveloperID.p12 | pbcopy` and paste into `MACOS_CERT_P12`.
-
-When a tag is pushed, [`.github/workflows/release.yml`](.github/workflows/release.yml) imports the
-certificate into a temporary keychain, sets `FOLIO_NOTARIZE=1`, waits for the notary service, staples
-the ticket, verifies the signature (`codesign`, `xcrun stapler validate`, `spctl`) and renders the
-release notes with the “signed and notarized” wording automatically. Without the certificate the same
-workflow produces the ad-hoc build, exactly as before.
 
 > Notarization needs network access and usually takes a few minutes. No entitlements are required
 > because the app is not sandboxed; the hardened runtime is enough.
@@ -582,8 +560,8 @@ cd core
 ├── scripts/                     download-pdfium, build-core, run-app, build-app, xcode-embed,
 │                                make-icon, fetch-samples, accept-core, make-sample-ru
 ├── samples/                     sample-ru.pdf, no-text.pdf (+ attention.pdf fetched)
-├── .github/                     CI (build, tests, artifact) and release workflow + notes template
-├── docs/                        screenshots, icon and reference notes
+├── .github/                     CI (tests, build, artifact) and the manual release-notes template
+├── docs/                        screenshots, icon, release checklist and reference notes
 └── dist/                        built Folio.app (+ zip), not committed
 ```
 
