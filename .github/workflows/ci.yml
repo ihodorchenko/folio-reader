@@ -28,6 +28,9 @@ jobs:
       - name: Fetch test PDFs
         run: ./scripts/fetch-samples.sh
 
+      - name: Check version consistency
+        run: ./scripts/check-version.sh
+
       - name: Build and test the Rust core
         run: |
           cd core

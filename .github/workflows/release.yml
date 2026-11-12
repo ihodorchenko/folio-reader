@@ -90,6 +90,8 @@ jobs:
           echo "FOLIO_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "FOLIO_BUILD=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
           echo "Release $TAG → version $VERSION, build ${GITHUB_RUN_NUMBER}"
+          # The checked-in version must already match the tag; the tag stays authoritative below.
+          ./scripts/check-version.sh "$VERSION"
 
       - name: Build the app bundle
         run: ./scripts/build-app.sh

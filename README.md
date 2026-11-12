@@ -390,13 +390,25 @@ Test documents:
 **Xcode:** *Product → Archive* → Organizer → *Distribute App* (Developer ID) — the resulting app is
 signed and notarized by Xcode. For a quick local app: ⌘B then *Product → Show Build Folder*.
 
-**Command line:** 
+**Command line:**
 
 ```bash
 ./scripts/build-app.sh            # release build + icon + ad-hoc signature → dist/Folio.app
 open dist/Folio.app
 open dist/Folio.app --args samples/attention.pdf
 ```
+
+Version: the Xcode project stores `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`; `Info.plist` is a
+template whose version keys Xcode overrides. Keep both in sync with:
+
+```bash
+./scripts/set-version.sh 1.2.1        # project + Info.plist, keeps the build number
+./scripts/check-version.sh            # CI also fails when they diverge
+```
+
+The release tag is authoritative in CI: `v1.2.1` builds version `1.2.1` (and checks that the
+checked-in version matches). The Xcode project excludes `x86_64`
+(`EXCLUDED_ARCHS[sdk=macosx*] = x86_64`) because PDFium and the Rust core are arm64-only.
 
 Bundle layout:
 
