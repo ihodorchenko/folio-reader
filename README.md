@@ -34,9 +34,10 @@ Prebuilt **Folio** for Apple Silicon: [latest release](https://github.com/ihodor
 → `Folio.app.zip` (~5 MB, SHA-256 published with the release).
 
 1. Unzip and move `Folio.app` to `/Applications`.
-2. The bundle is **ad-hoc signed** (not notarized): on first launch use **right-click → Open**, or
-   `xattr -dr com.apple.quarantine /Applications/Folio.app`. Apple's Developer ID signature plus
-   notarization are still on the roadmap.
+2. Builds without a Developer ID are **ad-hoc signed**: on first launch use **right-click → Open**, or
+   `xattr -dr com.apple.quarantine /Applications/Folio.app`. Once the signing certificate is
+   configured, the same pipeline signs with a Developer ID and notarizes the bundle — see
+   [Signing and notarization](#signing-and-notarization).
 3. Open a PDF with **Open With → Folio**, drag & drop into the window, or `⌘O`.
 
 The archive is a thin **arm64** build and needs **macOS 14+**. To build from source see
@@ -47,11 +48,72 @@ The archive is a thin **arm64** build and needs **macOS 14+**. To build from sou
 - Every green build on `main` uploads the signed `Folio.app.zip` plus its SHA-256 as a workflow
   artifact (`Actions → CI → Artifacts`, kept for 14 days).
 - Pushing a tag `vX.Y.Z` runs [`.github/workflows/release.yml`](.github/workflows/release.yml): it
-  builds the bundle with the version taken from the tag, verifies the ad-hoc signature, the version
-  and the bundled localizations, and creates a **draft** GitHub release with `Folio.app.zip` and
+  builds the bundle with the version taken from the tag, verifies the signature, the version and the
+  bundled localizations, and creates a **draft** GitHub release with `Folio.app.zip` and
   `Folio.app.zip.sha256`. The notes are rendered from
   [`.github/release-notes.md`](.github/release-notes.md) with the version, checksum, commit and CI
   run filled in — adding the "What's new" section and publishing stay manual.
+
+## Signing and notarization
+
+The default build is **ad-hoc signed** so it runs on the same Mac, but other Macs require a Gatekeeper
+bypass. For clean distribution the project supports **Developer ID signing with hardened runtime and
+Apple notarization**, locally and in CI. Nothing changes until a certificate is configured — without
+it the pipeline keeps producing the ad-hoc build and the release notes say so.
+
+### One-time setup (local)
+
+1. **Apple Developer Program** membership and a **Developer ID Application** certificate in the team
+   (Xcode → Settings → Accounts → Manage Certificates → **+** → Developer ID Application, or the
+   developer portal). Verify it is installed:
+   ```bash
+   security find-identity -v -p codesigning | grep "Developer ID Application"
+   ```
+2. **Notary credentials** — an app-specific password (appleid.apple.com → Sign-In and Security) or an
+   App Store Connect API key. Create a keychain profile once:
+   ```bash
+   xcrun notarytool store-credentials folio-notary \
+     --apple-id "you@example.com" --team-id "TEAMID" --password "app-specific-password"
+   ```
+3. Build, sign, notarize and staple:
+   ```bash
+   FOLIO_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+   FOLIO_NOTARIZE=1 FOLIO_NOTARY_PROFILE=folio-notary \
+   ./scripts/build-app.sh
+
+   spctl --assess --type execute --verbose=2 dist/Folio.app
+   # → dist/Folio.app: accepted, source=Notarized Developer ID
+   ```
+   The script signs the nested dylibs (PDFium, the Rust core) and the app with the same identity,
+   submits the bundle, staples the ticket and only then packs `dist/Folio.app.zip`. Instead of the
+   keychain profile it also accepts `FOLIO_NOTARY_APPLE_ID` / `FOLIO_NOTARY_TEAM_ID` /
+   `FOLIO_NOTARY_PASSWORD`, or an API key via `FOLIO_NOTARY_KEY_PATH` / `FOLIO_NOTARY_KEY_ID` /
+   `FOLIO_NOTARY_ISSUER`.
+
+### Notarization in CI
+
+Add these secrets under *Settings → Secrets and variables → Actions* and the release workflow signs
+and notarizes the bundle automatically:
+
+| secret | contents |
+|---|---|
+| `MACOS_CERT_P12` | base64 of the exported **Developer ID Application** `.p12` (certificate + key) |
+| `MACOS_CERT_PASSWORD` | password of that `.p12` |
+| `KEYCHAIN_PASSWORD` | any random string for the temporary CI keychain |
+| `NOTARY_APPLE_ID`, `NOTARY_TEAM_ID`, `NOTARY_PASSWORD` | Apple ID, team id, app-specific password — **or** |
+| `NOTARY_KEY_P8`, `NOTARY_KEY_ID`, `NOTARY_ISSUER` | base64 of the App Store Connect `.p8` key, its key id and issuer id |
+
+Export the certificate where it is installed: *Keychain Access → right-click the identity → Export…
+(.p12)*, then `base64 -i DeveloperID.p12 | pbcopy` and paste into `MACOS_CERT_P12`.
+
+When a tag is pushed, [`.github/workflows/release.yml`](.github/workflows/release.yml) imports the
+certificate into a temporary keychain, sets `FOLIO_NOTARIZE=1`, waits for the notary service, staples
+the ticket, verifies the signature (`codesign`, `xcrun stapler validate`, `spctl`) and renders the
+release notes with the “signed and notarized” wording automatically. Without the certificate the same
+workflow produces the ad-hoc build, exactly as before.
+
+> Notarization needs network access and usually takes a few minutes. No entitlements are required
+> because the app is not sandboxed; the hardened runtime is enough.
 
 ---
 

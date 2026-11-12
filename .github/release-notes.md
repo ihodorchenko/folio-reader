@@ -39,8 +39,7 @@ asset before publishing.
 ## Install
 
 1. Unzip `Folio.app.zip` and move `Folio.app` to `/Applications`.
-2. The bundle is **ad-hoc signed** (not notarized yet). On first launch use **right-click → Open**,
-   or run `xattr -dr com.apple.quarantine /Applications/Folio.app`.
+2. {{SIGNING_NOTE}}
 3. Open PDFs with **Open With → Folio**, by dragging them into the window, or with `⌘O`.
 
 **Requires macOS 14+ and an arm64 Mac** (Apple Silicon). The archive is a thin arm64 build.
@@ -49,13 +48,12 @@ asset before publishing.
 
 - CI (macOS 15, Swift 6.0): Rust unit + integration tests, core acceptance (**86/86**) and the app
   build are green for this commit; the same job publishes the bundle as a workflow artifact.
-- The release bundle is re-checked here: ad-hoc signature (`codesign --verify --deep --strict`),
-  bundle version, and the attached SHA-256.
+- The release bundle is re-checked here: code signature (`codesign --verify --deep --strict`),
+  bundle version and the attached SHA-256.
 
 ## Known limitations
 
-- ad-hoc signature: Gatekeeper asks for confirmation on other Macs; Developer ID + notarization are
-  on the roadmap;
+{{SIGNING_LIMITATION}}
 - no annotations, forms, links or printing; PDF bookmarks are only used as a heading source;
 - selection is limited to a single page; scans without a text layer are out of scope (no OCR);
 - translation needs macOS 15+ and the system language models; speech depends on system voices;
