@@ -101,6 +101,8 @@ final class ReaderModel {
     /// Window this model lives in (set through `WindowAccessor`).
     private(set) weak var window: NSWindow?
     private var windowCloseObserver: NSObjectProtocol?
+    private var windowResignObserver: NSObjectProtocol?
+    private var windowBecomeObserver: NSObjectProtocol?
 
     // MARK: Document
 
@@ -186,11 +188,33 @@ final class ReaderModel {
         if let windowCloseObserver {
             NotificationCenter.default.removeObserver(windowCloseObserver)
         }
+        if let windowResignObserver {
+            NotificationCenter.default.removeObserver(windowResignObserver)
+        }
+        if let windowBecomeObserver {
+            NotificationCenter.default.removeObserver(windowBecomeObserver)
+        }
         windowCloseObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: window, queue: .main
         ) { _ in
             MainActor.assumeIsolated {
                 ReaderModel.model(for: window)?.persistReadingPosition()
+            }
+        }
+        // The selection bar is a foreground affordance: hide it when the window goes away
+        // and bring it back after the window becomes key again.
+        windowResignObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification, object: window, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                ReaderModel.model(for: window)?.suppressSelectionBarForWindow()
+            }
+        }
+        windowBecomeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                ReaderModel.model(for: window)?.restoreSelectionBarAfterWindow()
             }
         }
         if !windowAttached {
@@ -686,11 +710,67 @@ final class ReaderModel {
         focusSearchRequest += 1
     }
 
+    // MARK: - Selection action bar
+
+    /// True while the pointer is down (the drag is in progress): the bar must not pop up mid-drag.
+    private(set) var isPointerSelecting = false
+    /// Set when another action takes over (menu, copy, lookup, translation…); cleared for a new selection.
+    private(set) var selectionBarDismissed = false
+
+    /// The floating action bar shows for a selection of more than one word and only while no
+    /// other action has taken over.
+    var isSelectionBarVisible: Bool {
+        guard let selection, !selection.isEmpty, selection.wordIndices.count > 1 else { return false }
+        return !isPointerSelecting && !selectionBarDismissed
+    }
+
+    func beginPointerSelection() { isPointerSelecting = true }
+
+    func endPointerSelection() { isPointerSelecting = false }
+
+    /// Hide the bar until the next selection (menus, drag, copy, lookup, translation…).
+    func dismissSelectionBar() { selectionBarDismissed = true }
+
+    /// Bring the bar back when the interfering action (e.g. a menu) is over.
+    func restoreSelectionBar() { selectionBarDismissed = false }
+
+    private var barSuppressedForMenu = false
+    private var barSuppressedForWindow = false
+
+    /// A menu (context or menu bar) opened: hide the bar, remembering whether it was visible,
+    /// so it comes back only where it actually was.
+    func suppressSelectionBarForMenu() {
+        barSuppressedForMenu = isSelectionBarVisible
+        dismissSelectionBar()
+    }
+
+    func restoreSelectionBarAfterMenu() {
+        guard barSuppressedForMenu else { return }
+        barSuppressedForMenu = false
+        restoreSelectionBar()
+    }
+
+    /// The window lost key status (another window or app took over).
+    func suppressSelectionBarForWindow() {
+        barSuppressedForWindow = isSelectionBarVisible
+        dismissSelectionBar()
+    }
+
+    func restoreSelectionBarAfterWindow() {
+        guard barSuppressedForWindow else { return }
+        barSuppressedForWindow = false
+        restoreSelectionBar()
+    }
+
     // MARK: - Selection and dictionary
 
     func setSelection(_ selection: Selection?) {
         let wasEmpty = self.selection?.isEmpty ?? true
         self.selection = selection
+        if let selection, !selection.isEmpty {
+            // A new selection always brings the action bar back.
+            selectionBarDismissed = false
+        }
         // Do not log every drag step — only the start of a new selection.
         if wasEmpty, let selection, !selection.isEmpty {
             folioLog("selection: page \(selection.page + 1), words \(selection.rects.count), \"\(String(selection.text.prefix(80)))\"")
@@ -699,6 +779,7 @@ final class ReaderModel {
 
     func clearSelection() {
         if selection != nil { selection = nil }
+        selectionBarDismissed = false
     }
 
     @discardableResult
@@ -711,6 +792,7 @@ final class ReaderModel {
         pasteboard.clearContents()
         let ok = pasteboard.setString(selection.text, forType: .string)
         folioLog("copy: \(ok ? "copied" : "ERROR") \(selection.text.count) characters: \"\(String(selection.text.prefix(120)))\"")
+        dismissSelectionBar()
         return ok
     }
 
@@ -749,6 +831,7 @@ final class ReaderModel {
 
     /// Translate text (selection or word) and show the translation panel.
     func translate(_ text: String, origin: String = "selection") {
+        dismissSelectionBar()
         guard #available(macOS 15.0, *) else {
             translation.unavailableOnThisSystem()
             return
@@ -779,6 +862,23 @@ final class ReaderModel {
         let pageView = PageCanvasView.active(in: window) ?? PageCanvasView.active
         guard let pageView else {
             folioLog("lookup: no active page (click a page first)")
+            NSSound.beep()
+            return
+        }
+        dismissSelectionBar()
+        pageView.lookUpAtHover()
+    }
+
+    /// "Dictionary" from the selection action bar: look up the selected word(s).
+    func lookUpSelection() {
+        guard let selection, !selection.isEmpty else {
+            folioLog("lookup: no selection — nothing to look up")
+            NSSound.beep()
+            return
+        }
+        dismissSelectionBar()
+        guard let pageView = PageCanvasView.active(in: window) ?? PageCanvasView.active else {
+            folioLog("lookup: no page view for the selection")
             NSSound.beep()
             return
         }

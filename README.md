@@ -74,6 +74,10 @@ The archive is a thin **arm64** build and needs **macOS 14+**. To build from sou
   - **Pages** — page thumbnails;
   - **Search** — debounced full-document search, highlighted hits, next/previous navigation.
 - **Text overlay** — hovered word highlight, drag selection, `⌘C` copy.
+- **Selection action bar** — selecting more than one word shows a floating
+  **Dictionary / Translate / Copy** bar above the selection. It hides while dragging, while any
+  menu (context or menu bar) is open and after copy/lookup/translation, and comes back when the
+  menu closes; a single-word selection never shows it.
 - **Force click → system dictionary** via `NSView.showDefinition(for:at:)`, plus `⌘D` and a
   context-menu item as a fallback for trackpads without Force Touch.
 - **Read aloud** — the selected text (or the word under the right click) through the system speech
@@ -97,8 +101,8 @@ The UI is **bilingual (English and Russian)** and follows the system language; t
 and documentation are in English. Strings live in code as English text wrapped in `L10n.t(...)` and
 are translated in [`app/Resources/ru.lproj/Localizable.strings`](app/Resources/ru.lproj/Localizable.strings);
 adding a language means adding another `<lang>.lproj` and listing it in `CFBundleLocalizations`.
-The screenshots below show the English UI — the same settings window in Russian is
-[here](docs/settings-ru.png).
+The screenshots below show the English UI — Russian variants: [settings](docs/settings-ru.png),
+[selection action bar](docs/selection-ru.png).
 
 ---
 
@@ -369,6 +373,10 @@ setting is off, and the panel is filled with demo text.
 - `cargo test` — unit tests for grouping plus integration tests on real PDFs (28 tests).
 - The app: snapshots of `attention.pdf` at 100/150/200%, Cyrillic document, `no-text.pdf`,
   document switching (cache invalidation), dictionary path and `⌘C` — verified via logs.
+- Selection action bar: `--snapshot` asserts it appears for a 6-word selection, stays hidden for a
+  single word, while a drag is in progress, while a menu is tracked (and returns once the menu
+  closes), and disappears after copying; screenshots are captured in both languages
+  (`docs/selection.png`, `docs/selection-ru.png`).
 - Localization: the signed bundle is launched twice with `AppleLanguages` forced to `en` and `ru`;
   the same acceptance run passes in both and the window report confirms localized menu titles
   (`No Recent Documents` vs «Нет недавних документов»), with screenshots captured in both languages

@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         WindowReport.event("didFinishLaunching, windows=\(NSApp.windows.count)")
+        installSelectionBarMenuObservers()
         if SnapshotRunner.isSnapshotMode {
             // IMPORTANT: start via Timer, not DispatchQueue.main.async.
             // Inside a main-queue block a nested RunLoop cannot wake
@@ -85,6 +86,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !SnapshotRunner.isSnapshotMode else { return }
         for model in ReaderModel.registry.allObjects {
             model.persistReadingPosition()
+        }
+    }
+
+    /// The floating selection bar must not fight with menus: hide it while any menu
+    /// (menu bar or context menu) is tracking and bring it back when the menu closes.
+    private func installSelectionBarMenuObservers() {
+        let center = NotificationCenter.default
+        center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                for model in ReaderModel.registry.allObjects {
+                    model.suppressSelectionBarForMenu()
+                }
+            }
+        }
+        center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                for model in ReaderModel.registry.allObjects {
+                    model.restoreSelectionBarAfterMenu()
+                }
+            }
         }
     }
 

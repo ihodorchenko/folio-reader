@@ -447,6 +447,7 @@ final class PageCanvasView: NSView {
         window?.makeFirstResponder(self)
         activateIfKeyWindow()
         lastPressureStage = 0
+        model?.beginPointerSelection()
         let local = convert(event.locationInWindow, from: nil)
         let point = pagePoint(from: local)
         mouseDownPoint = point
@@ -478,6 +479,7 @@ final class PageCanvasView: NSView {
             dragStartWord = nil
             isDragging = false
             lastPressureStage = 0
+            model?.endPointerSelection()
             needsDisplay = true
         }
         guard !isDragging else { return }
@@ -605,6 +607,7 @@ final class PageCanvasView: NSView {
         lastLookUpTime = now
         lookUpCallCount += 1
 
+        model?.dismissSelectionBar()
         let pageX = point.map { String(format: "%.1f", $0.x) } ?? "-"
         let pageY = point.map { String(format: "%.1f", $0.y) } ?? "-"
         folioLog("lookup: page=\(pageIndex + 1) word=«\(text)» point=(\(pageX), \(pageY)) baseline=(\(String(format: "%.1f", clamped.x)), \(String(format: "%.1f", clamped.y))) source=\(source) → showDefinition(for:at:)")
@@ -635,6 +638,7 @@ final class PageCanvasView: NSView {
         contextPoint = point
         lastHoverPoint = point
         hoverWordIndex = geometry?.wordIndex(at: point, tolerance: 4)
+        model?.dismissSelectionBar()
         needsDisplay = true
         return makeContextMenu()
     }

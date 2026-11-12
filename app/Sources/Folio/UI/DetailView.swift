@@ -201,6 +201,16 @@ struct PageCard: View {
                  renderScale: model.renderScale,
                  documentIdentity: model.docIdentity)
             .frame(width: frameWidth, height: frameHeight)
+            .overlay(alignment: .topLeading) {
+                if model.isSelectionBarVisible, let selection, selection.page == page, !selection.rects.isEmpty {
+                    GeometryReader { geometry in
+                        SelectionActionBar(model: model)
+                            .fixedSize()
+                            .position(x: barCenterX(selection: selection, pageWidth: geometry.size.width),
+                                      y: barCenterY(selection: selection, pageHeight: geometry.size.height))
+                    }
+                }
+            }
             .background(
                 Rectangle()
                     .fill(Color(nsColor: .textBackgroundColor))
@@ -217,5 +227,24 @@ struct PageCard: View {
                 model.requestLayout(page)
                 model.prefetch(around: page)
             }
+    }
+
+    /// Horizontal center of the action bar: above the selection, kept inside the page.
+    private func barCenterX(selection: Selection, pageWidth: CGFloat) -> CGFloat {
+        let rect = PcRect.union(selection.rects)
+        let raw = CGFloat(rect.midX) * model.zoom
+        let half = SelectionActionBar.estimatedWidth / 2 + 6
+        return min(max(raw, half), max(pageWidth - half, half))
+    }
+
+    /// Vertical center of the action bar: just above the selection, or below it near the page top.
+    private func barCenterY(selection: Selection, pageHeight: CGFloat) -> CGFloat {
+        let rect = PcRect.union(selection.rects)
+        let top = CGFloat(rect.y) * model.zoom
+        let bottom = CGFloat(rect.maxY) * model.zoom
+        let half: CGFloat = 16
+        let above = top - half - 10
+        if above >= half { return above }
+        return min(bottom + half + 10, max(pageHeight - half, half))
     }
 }

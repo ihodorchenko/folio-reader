@@ -327,6 +327,46 @@ enum SnapshotRunner {
         pump(0.15)
         let pasted = NSPasteboard.general.string(forType: .string) ?? "<empty>"
         folioLog("snapshot: pasteboard after copy: «\(String(pasted.prefix(140)))»")
+
+        // Selection action bar: appears for more than one word and yields to any other action.
+        pageView.debugSelectFirstWords(6)
+        pump(0.2)
+        folioLog("snapshot: action bar for a 6-word selection = \(model.isSelectionBarVisible) (expected true)")
+        if !model.isSelectionBarVisible {
+            folioLog("snapshot: ERROR — the action bar did not appear for a multi-word selection")
+        }
+        pageView.debugSelectFirstWords(1)
+        pump(0.1)
+        folioLog("snapshot: action bar for a single word = \(model.isSelectionBarVisible) (expected false)")
+        if model.isSelectionBarVisible {
+            folioLog("snapshot: ERROR — the action bar appeared for a single word")
+        }
+        pageView.debugSelectFirstWords(6)
+        pump(0.1)
+        model.beginPointerSelection()
+        if model.isSelectionBarVisible {
+            folioLog("snapshot: ERROR — the action bar is visible during a drag")
+        }
+        model.endPointerSelection()
+        if !model.isSelectionBarVisible {
+            folioLog("snapshot: ERROR — the action bar did not return after the drag")
+        }
+        window.makeKey()
+        NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: nil)
+        folioLog("snapshot: action bar while a menu is tracked = \(model.isSelectionBarVisible) (expected false)")
+        if model.isSelectionBarVisible {
+            folioLog("snapshot: ERROR — the action bar stayed while a menu was tracked")
+        }
+        NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: nil)
+        folioLog("snapshot: action bar after the menu closed = \(model.isSelectionBarVisible) (expected true, window key = \(window.isKeyWindow))")
+        if !model.isSelectionBarVisible {
+            folioLog("snapshot: ERROR — the action bar did not return after the menu closed")
+        }
+        _ = model.copySelection()
+        folioLog("snapshot: action bar after copy = \(model.isSelectionBarVisible) (expected false)")
+        if model.isSelectionBarVisible {
+            folioLog("snapshot: ERROR — the action bar stayed after copy")
+        }
     }
 
     // MARK: - Settings, speech and translation self-tests
