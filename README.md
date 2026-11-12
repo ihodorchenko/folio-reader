@@ -115,35 +115,6 @@ workflow produces the ad-hoc build, exactly as before.
 > Notarization needs network access and usually takes a few minutes. No entitlements are required
 > because the app is not sandboxed; the hardened runtime is enough.
 
-### Notarizing with Xcode's managed Developer ID
-
-Xcode can manage the Developer ID Application identity itself (the portal shows it as *Developer ID
-Application Managed*). Its private key is held by Xcode and is **not** available to `codesign` or
-`notarytool` from the command line, so the CLI pipeline above cannot use it. For that setup the
-repository ships a wrapper project, [`xcode/FolioWrapper`](xcode/FolioWrapper) — a JSON
-`project.xcproj` ([format notes](docs/xcode-27-project-format.md)) that assembles the real
-`dist/Folio.app` and lets Xcode sign and notarize it:
-
-1. Build the bundle first: `./scripts/build-app.sh`.
-2. Open `xcode/FolioWrapper/FolioWrapper.xcodeproj` (Xcode signed into the team that owns the
-   managed identity), choose the **Folio** scheme and *Product → Archive*.
-3. In Organizer: *Distribute App → Developer ID → Upload*. Xcode re-signs the bundle — including the
-   embedded PDFium and Rust dylibs — with the managed Developer ID, submits it to the notary service
-   and staples the ticket.
-4. Export the notarized app and publish it:
-
-   ```bash
-   spctl --assess --type execute --verbose=2 Folio.app   # accepted, source=Notarized Developer ID
-   codesign -dv --verbose=4 Folio.app | grep Authority    # Developer ID Application: …
-   ditto -c -k --keepParent Folio.app Folio.app.zip
-   shasum -a 256 Folio.app.zip
-   ```
-
-The wrapper target only assembles the bundle (its script phase copies `dist/Folio.app` and signs the
-nested dylibs); the product itself is still produced by the Rust + SwiftPM build. This path is manual
-— for automated CI releases an exportable Developer ID certificate and the secrets above are
-required.
-
 ---
 
 ## What it does
@@ -557,9 +528,7 @@ cd core
 │                                make-icon, fetch-samples, accept-core, make-sample-ru
 ├── samples/                     sample-ru.pdf, no-text.pdf (+ attention.pdf fetched)
 ├── .github/                     CI (build, tests, artifact) and release workflow + notes template
-├── xcode/FolioWrapper/          JSON project.xcproj wrapper for Xcode managed Developer ID
-│                                signing/notarization (Distribute App → Developer ID)
-├── docs/                        screenshots, icon and reference notes
+├── docs/                        screenshots and icon
 └── dist/                        built Folio.app (+ zip), not committed
 ```
 
@@ -572,9 +541,8 @@ Current limitations:
 - no annotations, forms, links, printing; PDF bookmarks are only used as a level source;
 - selection is limited to a single page; no cross-page selection;
 - complex scripts (RTL, vertical text) and scans without a text layer are out of scope (no OCR);
-- the app is built as a SwiftPM executable and a minimal `.app` bundle; by default it is ad-hoc
-  signed (a Developer ID certificate and notarization need a paid Apple Developer team — see
-  [Signing and notarization](#signing-and-notarization)), and it is not sandboxed;
+- the app is built as a SwiftPM executable and a minimal `.app` bundle: no Developer ID
+  signature or notarization, no App Sandbox;
 - render cache is bounded by size; very heavy pages are not optimized;
 - stage-2 force click requires a Force Touch trackpad; `⌘D` is the fallback;
 - translation needs macOS 15+ and the language models installed by the system: the first use of a
