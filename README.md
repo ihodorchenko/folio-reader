@@ -34,10 +34,10 @@ Prebuilt **Folio** for Apple Silicon: [latest release](https://github.com/ihodor
 → `Folio.app.zip` (~5 MB, SHA-256 published with the release).
 
 1. Unzip and move `Folio.app` to `/Applications`.
-2. Builds without a Developer ID are **ad-hoc signed**: on first launch use **right-click → Open**, or
-   `xattr -dr com.apple.quarantine /Applications/Folio.app`. Once the signing certificate is
-   configured, the same pipeline signs with a Developer ID and notarizes the bundle — see
-   [Signing and notarization](#signing-and-notarization).
+2. Official builds are signed with a Developer ID and notarized from the Xcode project (see
+   [Signing and notarization](#signing-and-notarization)). Local builds made with
+   `./scripts/build-app.sh` without a certificate are **ad-hoc signed**: on first launch use
+   **right-click → Open**, or `xattr -dr com.apple.quarantine /Applications/Folio.app`.
 3. Open a PDF with **Open With → Folio**, drag & drop into the window, or `⌘O`.
 
 The archive is a thin **arm64** build and needs **macOS 14+**. To build from source see
@@ -56,16 +56,39 @@ The archive is a thin **arm64** build and needs **macOS 14+**. To build from sou
 
 ## Signing and notarization
 
-The default build is **ad-hoc signed** so it runs on the same Mac, but other Macs require a Gatekeeper
-bypass. For clean distribution the project supports **Developer ID signing with hardened runtime and
-Apple notarization**, locally and in CI. Nothing changes until a certificate is configured — without
-it the pipeline keeps producing the ad-hoc build and the release notes say so.
+There are two build paths; both produce the same bundle:
 
-### One-time setup (local)
+- **Xcode project** — the default way to build, archive and distribute. Xcode signs with the team's
+  Developer ID (including Xcode-managed certificates) and notarizes from Organizer.
+- **`scripts/build-app.sh`** — the command-line/CI path. It builds with SwiftPM + cargo and signs
+  ad-hoc by default; pass a Developer ID identity and notary credentials to sign, notarize and staple
+  from the terminal (needed for automated releases).
 
-1. **Apple Developer Program** membership and a **Developer ID Application** certificate in the team
-   (Xcode → Settings → Accounts → Manage Certificates → **+** → Developer ID Application, or the
-   developer portal). Verify it is installed:
+### Signing and notarizing with Xcode (default)
+
+1. Open [`Folio.xcodeproj`](Folio.xcodeproj), select the **Folio** scheme and *Product → Archive*.
+2. In Organizer: *Distribute App → Developer ID → Upload*. Xcode re-signs the bundle — including the
+   embedded PDFium and Rust dylibs — with the team's Developer ID, submits it to the notary service
+   and staples the ticket.
+3. Export the notarized app and check it:
+   ```bash
+   spctl --assess --type execute --verbose=2 Folio.app   # accepted, source=Notarized Developer ID
+   codesign -dv --verbose=4 Folio.app | grep Authority    # Developer ID Application: …
+   xcrun stapler validate Folio.app
+   ```
+The project uses the Xcode 27 JSON format (`project.xcproj`) and hard-codes
+`DEVELOPMENT_TEAM = 8885WMRK5B`; change it in `Folio.xcodeproj/project.xcproj` if you use another
+team. The build phase [`scripts/xcode-embed.sh`](scripts/xcode-embed.sh) builds the Rust core,
+renders the icon and embeds the dylibs and `ru.lproj`; everything else is compiled by Xcode from
+`app/Sources/Folio`.
+
+### CLI build and notarization (exportable certificate, CI)
+
+The script path needs an **exportable** Developer ID certificate in the keychain (an Xcode-managed
+certificate is not visible to `codesign`/`notarytool`).
+
+1. **Apple Developer Program** membership and a **Developer ID Application** certificate in the team.
+   Verify it is installed:
    ```bash
    security find-identity -v -p codesigning | grep "Developer ID Application"
    ```
@@ -84,11 +107,10 @@ it the pipeline keeps producing the ad-hoc build and the release notes say so.
    spctl --assess --type execute --verbose=2 dist/Folio.app
    # → dist/Folio.app: accepted, source=Notarized Developer ID
    ```
-   The script signs the nested dylibs (PDFium, the Rust core) and the app with the same identity,
-   submits the bundle, staples the ticket and only then packs `dist/Folio.app.zip`. Instead of the
-   keychain profile it also accepts `FOLIO_NOTARY_APPLE_ID` / `FOLIO_NOTARY_TEAM_ID` /
-   `FOLIO_NOTARY_PASSWORD`, or an API key via `FOLIO_NOTARY_KEY_PATH` / `FOLIO_NOTARY_KEY_ID` /
-   `FOLIO_NOTARY_ISSUER`.
+   The script signs the nested dylibs and the app with the same identity, submits the bundle, staples
+   the ticket and only then packs `dist/Folio.app.zip`. Instead of the keychain profile it also
+   accepts `FOLIO_NOTARY_APPLE_ID` / `FOLIO_NOTARY_TEAM_ID` / `FOLIO_NOTARY_PASSWORD`, or an API key
+   via `FOLIO_NOTARY_KEY_PATH` / `FOLIO_NOTARY_KEY_ID` / `FOLIO_NOTARY_ISSUER`.
 
 ### Notarization in CI
 
@@ -318,8 +340,21 @@ so a stray shortcut never starts reading in a library.
 
 Prefer the prebuilt app? See [Download](#download) above.
 
-Requirements: macOS 14+, Xcode 16+ (verified on macOS 27.2 / Xcode 27.2, arm64) and a Rust
-toolchain (`rustup`, 1.92+).
+Requirements: macOS 14+, Xcode 27.2+ (the project uses the JSON `project.xcproj` format; verified on
+macOS 27.2 / Xcode 27.2, arm64) and a Rust toolchain (`rustup`, 1.92+).
+
+### Xcode (default)
+
+```bash
+./scripts/download-pdfium.sh   # one-time: prebuilt PDFium (BSD-3), not committed
+open Folio.xcodeproj
+```
+
+Select the **Folio** scheme and press **⌘R**. The *Build the Rust core and embed dylibs/resources*
+phase runs cargo, renders the icon and embeds PDFium + the Rust core automatically. Use
+*Product → Archive* for a distribution build (see [Signing and notarization](#signing-and-notarization)).
+
+### Command line / CI
 
 ```bash
 # 1. PDFium (prebuilt, BSD-3)
@@ -352,8 +387,13 @@ Test documents:
 
 ### Build a real `.app`
 
+**Xcode:** *Product → Archive* → Organizer → *Distribute App* (Developer ID) — the resulting app is
+signed and notarized by Xcode. For a quick local app: ⌘B then *Product → Show Build Folder*.
+
+**Command line:** 
+
 ```bash
-./scripts/build-app.sh            # release build + icon + signature → dist/Folio.app
+./scripts/build-app.sh            # release build + icon + ad-hoc signature → dist/Folio.app
 open dist/Folio.app
 open dist/Folio.app --args samples/attention.pdf
 ```
@@ -374,10 +414,11 @@ dist/Folio.app/Contents/
 
 - The app looks for the core inside its own bundle first (`Contents/Frameworks`) and only then
   in the development tree, so double-clicking from Finder uses the embedded dylibs.
-- The bundle is **ad-hoc signed** (`codesign --sign -`), which is required on arm64. On
-  another Mac Gatekeeper will block it: right-click → Open, or System Settings → Privacy &
-  Security → "Open Anyway". Distribution requires a Developer ID certificate and notarization
-  (`codesign --options runtime`, `notarytool`, `stapler`).
+- `build-app.sh` signs the bundle **ad-hoc** (`codesign --sign -`), which is required on arm64; Xcode
+  builds are signed with the team identity. On another Mac Gatekeeper will block an ad-hoc build:
+  right-click → Open, or System Settings → Privacy & Security → "Open Anyway". Distribution requires
+  a Developer ID certificate and notarization (Xcode Organizer, or `notarytool`/`stapler` for the
+  script path).
 - `dist/Folio.app.zip` is a clean archive (no extended attributes) suitable for moving to
   another Mac. In a file-provider-synced folder macOS re-adds `com.apple.FinderInfo` to the
   bundle, so `codesign --verify --deep --strict` on that copy may complain — it does not affect
@@ -510,7 +551,9 @@ cd core
 │   ├── include/pdfcore.h        C ABI header
 │   ├── tests/integration.rs
 │   └── vendor/pdfium/           libpdfium.dylib + headers (downloaded, not committed)
-├── app/                         SwiftPM app (SwiftUI + AppKit)
+├── Folio.xcodeproj/             Xcode project (JSON project.xcproj): default build/archive path,
+│                                Distribution App → Developer ID; builds Rust/PDFium in a phase
+├── app/                         SwiftUI + AppKit sources (shared by Xcode and SwiftPM)
 │   ├── Package.swift
 │   ├── Bundle/Info.plist
 │   ├── Resources/               UI localizations (ru.lproj; English is the source language)
@@ -524,11 +567,11 @@ cd core
 │       ├── UI/          RootView, page canvas, sidebars, SettingsView,
 │       │                TranslationPanel, TranslationTaskHost
 │       └── Core/        PdfCoreBridge (dlopen + C ABI), JSON models
-├── scripts/                     download-pdfium, build-core, run-app, build-app,
+├── scripts/                     download-pdfium, build-core, run-app, build-app, xcode-embed,
 │                                make-icon, fetch-samples, accept-core, make-sample-ru
 ├── samples/                     sample-ru.pdf, no-text.pdf (+ attention.pdf fetched)
 ├── .github/                     CI (build, tests, artifact) and release workflow + notes template
-├── docs/                        screenshots and icon
+├── docs/                        screenshots, icon and reference notes
 └── dist/                        built Folio.app (+ zip), not committed
 ```
 

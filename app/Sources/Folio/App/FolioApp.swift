@@ -25,6 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var eventMonitors: [Any?] = []
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // The app restores its own reading positions; AppKit window restoration is
+        // disabled. Without this, a stale SwiftUI window-restoration record (for the
+        // same bundle id) can suppress the first window in Xcode-built binaries.
+        UserDefaults.standard.register(defaults: ["ApplePersistenceIgnoreState": true])
         WindowReport.event("willFinishLaunching")
         NSApp.setActivationPolicy(SnapshotRunner.isSnapshotMode ? .accessory : .regular)
     }
