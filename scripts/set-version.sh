@@ -5,8 +5,10 @@
 #   ./scripts/set-version.sh 1.2.1        # keep the current build number
 #   ./scripts/set-version.sh 1.2.1 42     # also set CFBundleVersion / CURRENT_PROJECT_VERSION
 #
-# The release tag remains authoritative for CI: the release workflow overrides the
-# version with the tag and only verifies that the checked-in version matches it.
+# The checked-in value is the single source of truth: releases are manual, so bump it
+# before cutting one. There is no tag-triggered workflow and CI does not take the version
+# from a tag — it only verifies that the project and Info.plist agree
+# (scripts/check-version.sh) and builds whatever is committed.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
