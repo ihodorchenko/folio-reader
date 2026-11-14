@@ -50,9 +50,10 @@ The archive is a thin **arm64** build and needs **macOS 14+**. To build from sou
   `Folio.app.zip` as a workflow artifact (`Actions → CI → Artifacts`, kept for 14 days) — useful for
   smoke tests, not for distribution: a notarized build needs the Developer ID certificate and is
   produced locally in Xcode.
-- **Releases are manual.** There is no tag-triggered workflow: bump the version, build and notarize
-  the app in Xcode, verify it, and publish the release by hand — see
-  [Releasing](docs/releasing.md).
+- **Releases are manual and Xcode notarizes.** There is no tag-triggered workflow: bump the version
+  and tag in the terminal, archive and notarize in Xcode, export the app into `dist/`, then
+  `./scripts/package-release.sh` packages and verifies it (Developer ID + Gatekeeper + staple) and
+  the release is published by hand — see [Releasing](docs/releasing.md).
 
 ## Signing and notarization
 
@@ -62,8 +63,8 @@ There are two build paths; both produce the same bundle:
   Developer ID (including Xcode-managed certificates) and notarizes from Organizer.
 - **`scripts/build-app.sh`** — the command-line/CI path. It builds with SwiftPM + cargo, stamps the
   version and build number from the Xcode project and signs ad-hoc by default; pass a Developer ID
-  identity and notary credentials to sign, notarize and staple from the terminal (needed for
-  automated releases).
+  identity and notary credentials to sign, notarize and staple from the terminal. Its bundle is for
+  smoke tests — a release asset is always the notarized Xcode archive (`scripts/package-release.sh`).
 
 ### Signing and notarizing with Xcode (default)
 
@@ -380,6 +381,7 @@ signed and notarized by Xcode. For a quick local app: ⌘B then *Product → Sho
 
 ```bash
 ./scripts/build-app.sh            # release build + icon + ad-hoc signature → dist/Folio.app
+                                  # (smoke tests only: releases are notarized in Xcode)
 open dist/Folio.app
 open dist/Folio.app --args samples/attention.pdf
 ```
@@ -570,7 +572,8 @@ cd core
 │       │                TranslationPanel, TranslationTaskHost
 │       └── Core/        PdfCoreBridge (dlopen + C ABI), JSON models
 ├── scripts/                     download-pdfium, build-core, run-app, build-app, xcode-embed,
-│                                make-icon, fetch-samples, accept-core, make-sample-ru
+│                                make-icon, fetch-samples, accept-core, make-sample-ru,
+│                                set-version, check-version, package-release
 ├── samples/                     sample-ru.pdf, no-text.pdf (+ attention.pdf fetched)
 ├── .github/                     CI (tests, build, artifact) and the manual release-notes template
 ├── docs/                        screenshots, icon, release checklist and reference notes
@@ -586,8 +589,8 @@ Current limitations:
 - no annotations, forms, links, printing; PDF bookmarks are only used as a level source;
 - selection is limited to a single page; no cross-page selection;
 - complex scripts (RTL, vertical text) and scans without a text layer are out of scope (no OCR);
-- the app is built as a SwiftPM executable and a minimal `.app` bundle: no Developer ID
-  signature or notarization, no App Sandbox;
+- the app is not sandboxed; the CLI bundle (`build-app.sh`) is ad-hoc signed — only the release
+  built and notarized in Xcode is a Developer ID bundle;
 - render cache is bounded by size; very heavy pages are not optimized;
 - stage-2 force click requires a Force Touch trackpad; `⌘D` is the fallback;
 - translation needs macOS 15+ and the language models installed by the system: the first use of a

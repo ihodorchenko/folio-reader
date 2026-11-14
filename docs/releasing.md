@@ -1,26 +1,36 @@
 # Releasing Folio (manual)
 
-Releases are built, notarized and published **locally**. CI only runs the tests and uploads an
-ad-hoc build artifact for smoke tests; pushing a tag does not publish anything (there is no
-tag-triggered workflow).
+Notarization is possible **only from Xcode** here: the Developer ID identity and the notary
+credentials live in the Xcode session, while the terminal has neither — `codesign` finds no
+`Developer ID Application` certificate and `notarytool` answers «Must provide credentials». So a
+release always has the same three steps:
 
-## 1. Bump and check the version
+1. version + commit + tag from the terminal;
+2. archive and notarize in Xcode, export the app to `dist/Folio.app`;
+3. package, verify and publish from the terminal.
+
+`scripts/build-app.sh` is deliberately **not** part of this flow: it produces an ad-hoc bundle for
+CI and smoke tests, Gatekeeper rejects it, and `scripts/package-release.sh` refuses to package it.
+There is no tag-triggered workflow — pushing a tag publishes nothing.
+
+## 1. Version, commit and tag
 
 ```bash
-./scripts/set-version.sh 1.2.2     # MARKETING_VERSION / CURRENT_PROJECT_VERSION in the project
+./scripts/set-version.sh 1.2.2     # MARKETING_VERSION / CURRENT_PROJECT_VERSION, project only
 ./scripts/check-version.sh         # the plist must still refer to the project, not carry a copy
 git diff                           # only Folio.xcodeproj/project.xcproj should change
 git add -A && git commit -m "Release 1.2.2" && git push
+git tag -a v1.2.2 -m "Folio 1.2.2 — <theme>" && git push origin v1.2.2
 ```
 
-The Xcode project is the **only** source of a version: `MARKETING_VERSION` → `CFBundleShortVersionString`,
-`CURRENT_PROJECT_VERSION` → `CFBundleVersion`. `app/Bundle/Info.plist` is a template with
-`$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)` placeholders, so Xcode — a plain build and an
-archive alike — and `scripts/build-app.sh` stamp the same pair without a second file to edit.
-`FOLIO_VERSION` / `FOLIO_BUILD` override the CLI build; CI uses that to put the workflow run number
-into ad-hoc builds. CI runs `check-version.sh` on every push.
+The Xcode project is the **only** source of a version: `MARKETING_VERSION` →
+`CFBundleShortVersionString`, `CURRENT_PROJECT_VERSION` → `CFBundleVersion`. `app/Bundle/Info.plist`
+is a template with `$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)` placeholders, so Xcode — a
+plain build and an archive alike — and `scripts/build-app.sh` stamp the same pair without a second
+file to edit. `FOLIO_VERSION` / `FOLIO_BUILD` override the CLI build; CI uses that to put the
+workflow run number into its ad-hoc artifacts. CI runs `check-version.sh` on every push.
 
-## 2. Build, sign and notarize in Xcode
+## 2. Archive and notarize in Xcode
 
 ```bash
 open Folio.xcodeproj
@@ -28,50 +38,51 @@ open Folio.xcodeproj
 
 1. Scheme **Folio** → *Product → Archive*.
 2. Organizer → *Distribute App → Developer ID → Upload* (wait for «Notarization succeeded»).
-3. *Export* the notarized app to a folder, e.g. `~/Desktop/Folio-1.2.1`.
+3. *Export* the notarized app into `dist/Folio.app`, replacing the previous bundle — the packaging
+   step reads the app from there.
 
-The archive build embeds PDFium, the Rust core and `ru.lproj`, and signs everything with the team's
-Developer ID; no `dist/` copying is involved. Only arm64 is built
+The archive embeds PDFium, the Rust core and `ru.lproj`, and signs everything with the team's
+Developer ID and the hardened runtime, then staples the ticket. Only arm64 is built
 (`EXCLUDED_ARCHS[sdk=macosx*] = x86_64`) because PDFium and the Rust core are arm64-only.
 
-## 3. Verify
+## 3. Package and verify from the terminal
 
 ```bash
-cd ~/Desktop/Folio-1.2.1
-codesign -dv --verbose=4 Folio.app | grep -E "Authority|TeamIdentifier"
-spctl --assess --type execute --verbose=2 Folio.app    # accepted, source=Notarized Developer ID
-xcrun stapler validate Folio.app
-/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Folio.app/Contents/Info.plist
+./scripts/package-release.sh 1.2.2
 ```
 
-Open the app, open a PDF (Finder / *Open With* / drag & drop), check the toolbar, selection action bar
-and dictionary once before publishing.
+The script fails instead of producing a bad asset when:
 
-## 4. Package
+- the bundle is not signed with a **Developer ID Application** certificate (an ad-hoc
+  `build-app.sh` export, or a development-signed Xcode build);
+- Gatekeeper does not accept it as `source=Notarized Developer ID`;
+- the version or build number of the app differs from the project (a stale export);
+- the stapled ticket does not survive the zip.
 
-```bash
-ditto -c -k --keepParent Folio.app Folio.app.zip
-shasum -a 256 Folio.app.zip > Folio.app.zip.sha256
-cat Folio.app.zip.sha256
-```
+It writes `dist/Folio.app.zip` and `dist/Folio.app.zip.sha256`, and re-checks the unpacked archive
+(version, `spctl`, `stapler validate`) — i.e. exactly what a user downloads.
 
-## 5. Publish
+## 4. Publish
 
 Copy [`.github/release-notes.md`](../.github/release-notes.md), replace `{{VERSION}}`, `{{SHA256}}`
 and `{{COMMIT}}`, add the «What's new» section, then:
 
 ```bash
-gh release create v1.2.1 --title "Folio 1.2.1" --notes-file /tmp/release-notes.md \
-    Folio.app.zip Folio.app.zip.sha256
+gh release create v1.2.2 --title "Folio 1.2.2 — <theme>" --notes-file /tmp/release-notes-1.2.2.md \
+    dist/Folio.app.zip dist/Folio.app.zip.sha256
 # or create the release in the GitHub web UI and attach both files
 ```
 
 Check the published release: the asset is the notarized zip, the SHA-256 in the notes matches
-`Folio.app.zip.sha256`, and `v1.2.1` is marked as the latest release.
+`dist/Folio.app.zip.sha256`, and `v1.2.2` is marked as the latest release.
 
 ## Notes
 
-- Keep the app version and the tag equal: `v1.2.1` ↔ `1.2.1`. `check-version.sh 1.2.1` verifies it.
-- The CI artifact (`Folio-app-<run>`) is ad-hoc signed and **not** a release asset.
+- Keep the app version and the tag equal: `v1.2.2` ↔ `1.2.2`; `check-version.sh 1.2.2` verifies it.
+- The release asset is always the Xcode archive, repacked from `dist/Folio.app`. The CI artifact
+  (`Folio-app-<run>`) and any `build-app.sh` bundle are ad-hoc signed and are **not** release assets.
 - No secrets or certificates live in the repository; the Developer ID identity stays in the local
-  keychain and is used only by Xcode during *Distribute App*.
+  keychain and is used only by Xcode during *Distribute App*. If a Developer ID and `notarytool`
+  credentials ever become available to the terminal, `scripts/build-app.sh` can sign, notarize and
+  staple on its own (`FOLIO_SIGN_IDENTITY`, `FOLIO_NOTARIZE=1`, `FOLIO_NOTARY_PROFILE`) — that would
+  replace steps 2–3, but it is not the case today.
