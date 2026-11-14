@@ -54,11 +54,8 @@ struct RootView: View {
         }
         // The system translation host lives for the whole lifetime of the window: SwiftUI
         // provides the session, and requests come from the AppKit menu (the page context menu).
+        // The translation bubble itself is a popover anchored to the selection (see PageCard).
         .background(TranslationTaskHost(controller: model.translation))
-        .sheet(isPresented: Binding(get: { model.translation.isPanelPresented },
-                                    set: { model.translation.isPanelPresented = $0 })) {
-            TranslationPanel(model: model)
-        }
     }
 
     // MARK: - Toolbar

@@ -735,7 +735,21 @@ final class PageCanvasView: NSView {
             NSSound.beep()
             return
         }
-        model?.translate(text, origin: selectionIsUnderContextPoint() ? "selection" : "word")
+        // A selection brings its own rects; a single word needs the rect of the word under the
+        // cursor, otherwise the translation bubble would have nothing to point at.
+        let onSelection = selectionIsUnderContextPoint()
+        model?.translate(text,
+                         origin: onSelection ? "selection" : "word",
+                         page: pageIndex,
+                         rects: onSelection ? [] : contextWordRects())
+    }
+
+    /// Page-coordinate rects of the word the context menu was opened on.
+    private func contextWordRects() -> [PcRect] {
+        guard let geometry, let point = contextPoint ?? lastHoverPoint else { return [] }
+        let index = geometry.wordIndex(at: point, tolerance: 10) ?? geometry.nearestWordIndex(to: point)
+        guard let index, let word = geometry.word(at: index) else { return [] }
+        return [word.bbox]
     }
 
     @objc private func contextSpeak(_ sender: Any?) {

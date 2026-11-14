@@ -223,10 +223,46 @@ struct PageCard: View {
                 }
             )
             .help(L10n.t("Page %ld", page + 1))
+            // Translation bubble: a system popover anchored to the translated fragment, like the
+            // Look Up / Translation bubble of the system apps — Esc or a click outside dismisses it.
+            .popover(isPresented: translationBinding,
+                     attachmentAnchor: .rect(.rect(translationAnchorRect)),
+                     arrowEdge: .trailing) {
+                TranslationPopover(model: model)
+            }
             .task(id: model.docIdentity + ":" + String(page)) {
                 model.requestLayout(page)
                 model.prefetch(around: page)
             }
+    }
+
+    // MARK: - Translation popover anchor
+
+    /// Only the page the translated fragment lives on presents the bubble.
+    private var translationBinding: Binding<Bool> {
+        Binding(
+            get: { model.translation.isPanelPresented && model.translation.anchorPage == page },
+            set: { isPresented in
+                if !isPresented { model.translation.isPanelPresented = false }
+            }
+        )
+    }
+
+    /// Union of the selection rects in the page's own coordinate space (zoomed), so the popover
+    /// arrow points at the words that were translated.
+    private var translationAnchorRect: CGRect {
+        guard model.translation.anchorPage == page else { return .zero }
+        let zoom = model.zoom
+        let rects = model.translation.anchorRects
+        guard !rects.isEmpty else {
+            // No rects (for example an explanation on older systems) — point at the page top.
+            return CGRect(x: 24, y: 40, width: 2, height: 20)
+        }
+        let union = PcRect.union(rects)
+        return CGRect(x: CGFloat(union.x) * zoom,
+                      y: CGFloat(union.y) * zoom,
+                      width: max(CGFloat(union.w) * zoom, 2),
+                      height: max(CGFloat(union.h) * zoom, 2))
     }
 
     /// Horizontal center of the action bar: above the selection, kept inside the page.

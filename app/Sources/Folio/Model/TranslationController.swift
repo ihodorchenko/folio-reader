@@ -28,9 +28,13 @@ final class TranslationController {
     private(set) var targetLanguageID = ""
     /// Incremented on every request — the host uses it to start `.translationTask`.
     private(set) var requestToken = 0
-    /// Whether the translation panel is shown.
+    /// Whether the translation bubble is shown.
     var isPanelPresented = false
-    /// What the request was made for: "word" / "selection" (the panel title is built from it).
+    /// Page the bubble points at (the selection lives on that page in the scroll view).
+    private(set) var anchorPage: Int?
+    /// Page-coordinate rects of the translated fragment: the bubble is anchored to their union.
+    private(set) var anchorRects: [PcRect] = []
+    /// What the request was made for: "word" / "selection" — logs and the retry path keep it.
     private(set) var requestOrigin = "selection"
     /// Extra hint under the error (what to do).
     private(set) var failureHint: String?
@@ -46,7 +50,12 @@ final class TranslationController {
 
     /// New translation request. The language pair is captured in the request so that a settings
     /// change does not "move into" an already running translation.
-    func request(text: String, sourceID: String, targetID: String, origin: String = "selection") {
+    func request(text: String,
+                 sourceID: String,
+                 targetID: String,
+                 origin: String = "selection",
+                 page: Int? = nil,
+                 rects: [PcRect] = []) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             folioLog("translate: empty text — nothing to translate")
@@ -60,8 +69,12 @@ final class TranslationController {
         translatedText = ""
         failureHint = nil
         phase = .working
-        isPanelPresented = true
         requestToken += 1
+        if let page {
+            anchorPage = page
+            anchorRects = rects
+        }
+        isPanelPresented = true
         folioLog("translate: request #\(requestToken) \"\(String(trimmed.prefix(60)))\" \(pairTitle), \(trimmed.count) characters")
     }
 
@@ -97,7 +110,7 @@ final class TranslationController {
     }
 
     /// System without the Translation framework (macOS < 15): show an explanation instead of a translation.
-    func unavailableOnThisSystem() {
+    func unavailableOnThisSystem(page: Int? = nil, rects: [PcRect] = []) {
         sourceText = ""
         translatedText = ""
         sourceLanguageID = SettingsStore.shared.translateSourceID
@@ -105,6 +118,10 @@ final class TranslationController {
         requestOrigin = "selection"
         phase = .failed(L10n.t("System translation requires macOS 15 or later"))
         failureHint = L10n.t("On this version of macOS only the dictionary and speech are available — there is no translation.")
+        if let page {
+            anchorPage = page
+            anchorRects = rects
+        }
         isPanelPresented = true
         folioLog("translate: system without the Translation framework — showing an explanation")
     }
@@ -134,7 +151,12 @@ final class TranslationController {
     // MARK: - Snapshot acceptance
 
     /// Inject a result without the network — for headless UI snapshots only.
-    func debugInjectResult(source: String, translated: String, sourceID: String, targetID: String) {
+    func debugInjectResult(source: String,
+                           translated: String,
+                           sourceID: String,
+                           targetID: String,
+                           page: Int? = nil,
+                           rects: [PcRect] = []) {
         sourceText = source
         translatedText = translated
         sourceLanguageID = sourceID
@@ -142,6 +164,10 @@ final class TranslationController {
         requestOrigin = "selection"
         failureHint = nil
         phase = .done
+        if let page {
+            anchorPage = page
+            anchorRects = rects
+        }
         isPanelPresented = true
         folioLog("translate: snapshot — injected result \(TranslateLanguage.named(sourceID).displayName) → \(TranslateLanguage.named(targetID).displayName)")
     }

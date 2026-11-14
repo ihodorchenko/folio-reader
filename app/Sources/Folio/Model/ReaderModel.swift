@@ -829,17 +829,29 @@ final class ReaderModel {
         speech.stop()
     }
 
-    /// Translate text (selection or word) and show the translation panel.
-    func translate(_ text: String, origin: String = "selection") {
+    /// Translate text (selection or word) and show the translation bubble anchored to it.
+    ///
+    /// The page/rects are the popover's anchor: the bubble points at the translated fragment the
+    /// same way the system Translation bubble does. They default to the current selection.
+    func translate(_ text: String,
+                   origin: String = "selection",
+                   page anchorPage: Int? = nil,
+                   rects anchorRects: [PcRect] = []) {
         dismissSelectionBar()
+        var selectionAnchor: Selection?
+        if let selection, !selection.isEmpty { selectionAnchor = selection }
+        let page = anchorPage ?? selectionAnchor?.page ?? currentPage
+        let rects = anchorRects.isEmpty ? (selectionAnchor?.rects ?? []) : anchorRects
         guard #available(macOS 15.0, *) else {
-            translation.unavailableOnThisSystem()
+            translation.unavailableOnThisSystem(page: page, rects: rects)
             return
         }
         translation.request(text: text,
                             sourceID: settings.translateSourceID,
                             targetID: settings.translateTargetID,
-                            origin: origin)
+                            origin: origin,
+                            page: page,
+                            rects: rects)
     }
 
     /// "Translate Selection" from the menu/context menu.

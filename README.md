@@ -144,7 +144,9 @@ certificate is not visible to `codesign`/`notarytool`).
   context-menu item as a fallback for trackpads without Force Touch.
 - **Read aloud** — the selected text (or the word under the right click) through the system speech
   synthesizer. **Off by default**; toggle, speed and voice live in Settings (`⌘,`).
-- **Translate** — the selected text through the system Translation framework. The default pair is
+- **Translate** — the selected text through the system Translation framework, shown in a system
+  popover anchored to the fragment (like the Look Up / Translation bubble): `Esc` or a click
+  outside dismisses it, so translating never blocks the reader. The default pair is
   **English (US) → Russian**, and a pair the user picks is remembered between launches.
 - **Layout debug mode** — colored boxes per element kind (`heading`, `body`, `list`,
   `caption`, `table`, `code`, `header`, `footer`, `formula`, `quote`, `reference`) with
@@ -295,10 +297,15 @@ auto-repeat is ignored.
 Both actions are available from the page context menu, from the `Озвучка` / `Перевод` menus and on
 shortcuts: `⌥⎋` reads the selection, `⌥⌘T` translates it.
 
-![Translation panel](docs/translation-panel.png)
+![Translation bubble](docs/translation-panel.png)
 
-The panel shows the source text, the translation and the current language pair. Changing the pair
-re-translates the same fragment immediately and is stored in `UserDefaults`
+Translation opens a **bubble next to the selected fragment** — the same interaction as the system
+Look Up / Translation popover: it shows the source text, the translation and the current language
+pair, and goes away on `Esc`, on a click anywhere outside, or as soon as another gesture takes over.
+There is no Close button and nothing is modal, so a translation never blocks reading; the bubble is
+anchored to the words it translates, which keeps it tied to the text instead of the window.
+
+Changing the pair re-translates the same fragment immediately and is stored in `UserDefaults`
 (`Folio.translate.source`, `Folio.translate.target`), so the choice survives relaunches; the factory
 default is **English (US) → Russian** and can be restored with one button. Translation runs on
 device through the system Translation framework (`TranslationSession` handed out by SwiftUI's

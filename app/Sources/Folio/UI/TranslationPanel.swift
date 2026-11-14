@@ -1,16 +1,42 @@
 import SwiftUI
 import AppKit
 
-/// Translation panel for the selected fragment: source, translation, language pair, actions.
+/// Height of the scrollable part of the bubble: measured so that short fragments stay compact
+/// and long ones scroll instead of growing the popover.
+private struct TranslationBodyHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+/// Translation bubble for the selected fragment (source, translation, language pair, actions).
 ///
-/// The panel knows nothing about `TranslationSession` — it only shows the state of
-/// `TranslationController` and changes the language-pair settings (they are persisted in `UserDefaults`).
-struct TranslationPanel: View {
+/// It is presented as a system popover anchored to the selection — the same interaction as the
+/// Look Up / Translation bubble of the system apps: `Esc` or a click outside dismisses it, a new
+/// gesture (selection, scroll, context menu) replaces it. There is no Close button and no modal
+/// sheet, so translating a fragment does not block the reader.
+///
+/// The view knows nothing about `TranslationSession` — it only shows the state of
+/// `TranslationController` and changes the language-pair settings (persisted in `UserDefaults`).
+struct TranslationPopover: View {
     let model: ReaderModel
 
     @Bindable private var settings: SettingsStore
     @Bindable private var controller: TranslationController
     @State private var reflowTask: Task<Void, Never>?
+    /// Measured height of the content inside the scroll view. Starts near a typical size so the
+    /// first layout pass does not open an almost-empty popover.
+    @State private var bodyHeight: CGFloat = 140
+
+    /// Identifier of the popover window — lets the headless snapshot run tell the bubble apart
+    /// from other popovers the app may have on screen.
+    static let windowIdentifier = "folio.translation.bubble"
+
+    /// Width of the bubble: close to the system one, still readable for a sentence or two.
+    private static let width: CGFloat = 440
+    /// The body never grows beyond this — longer fragments scroll.
+    private static let maxBodyHeight: CGFloat = 300
 
     init(model: ReaderModel) {
         self.model = model
@@ -20,59 +46,62 @@ struct TranslationPanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            languageBar
             Divider()
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 12) {
                     sourceSection
                     resultSection
                 }
-                .padding(16)
+                .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(key: TranslationBodyHeightKey.self, value: proxy.size.height)
+                    }
+                )
             }
+            .frame(height: min(max(bodyHeight, 1), Self.maxBodyHeight))
             Divider()
-            footer
+            actionBar
         }
-        .frame(width: 660, height: 470)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(width: Self.width)
+        .onPreferenceChange(TranslationBodyHeightKey.self) { height in
+            guard height > 1 else { return }
+            bodyHeight = height
+        }
         .onChange(of: settings.translateSourceID) { _, _ in reflow() }
         .onChange(of: settings.translateTargetID) { _, _ in reflow() }
+        .background(TranslationBubbleWindowMarker().frame(width: 0, height: 0))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(L10n.t("Translation"))
     }
 
-    // MARK: - Header
+    // MARK: - Language pair
 
-    private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "character.book.closed")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-            Text(L10n.t(controller.requestOrigin == "word" ? "Translation of Word" : "Translation of Selection"))
-                .font(.system(size: 13, weight: .semibold))
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-            Spacer(minLength: 8)
-
+    private var languageBar: some View {
+        HStack(spacing: 6) {
             Picker("", selection: $settings.translateSourceID) {
                 ForEach(TranslateLanguage.sourceChoices) { language in
-                    Text(language.displayName).tag(language.identifier)
+                    Text(language.shortName).tag(language.identifier)
                 }
             }
             .labelsHidden()
-            .frame(width: 190)
-            .help(L10n.t("Source language (the choice is saved)"))
+            .frame(width: 158)
+            .help(L10n.t("Source language (the choice is saved)") + ": " + controller.sourceLanguage.displayName)
 
             Image(systemName: "arrow.right")
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(.tertiary)
 
             Picker("", selection: $settings.translateTargetID) {
                 ForEach(TranslateLanguage.targetChoices) { language in
-                    Text(language.displayName).tag(language.identifier)
+                    Text(language.shortName).tag(language.identifier)
                 }
             }
             .labelsHidden()
-            .frame(width: 190)
-            .help(L10n.t("Target language (the choice is saved)"))
+            .frame(width: 158)
+            .help(L10n.t("Target language (the choice is saved)") + ": " + controller.targetLanguage.displayName)
 
             Button {
                 swapLanguages()
@@ -82,16 +111,18 @@ struct TranslationPanel: View {
             .buttonStyle(.borderless)
             .help(L10n.t("Swap languages"))
             .disabled(settings.translateSourceID.isEmpty)
+
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 11)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 
     // MARK: - Source and result
 
     private var sourceSection: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(controller.sourceLanguage.displayName.uppercased())
+        VStack(alignment: .leading, spacing: 4) {
+            Text(controller.sourceLanguage.shortName.uppercased())
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(.tertiary)
             Text(controller.sourceText)
@@ -99,7 +130,7 @@ struct TranslationPanel: View {
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
+                .padding(9)
                 .background(Color(nsColor: .textBackgroundColor).opacity(0.55),
                             in: RoundedRectangle(cornerRadius: 7))
         }
@@ -107,8 +138,8 @@ struct TranslationPanel: View {
 
     @ViewBuilder
     private var resultSection: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(controller.targetLanguage.displayName.uppercased())
+        VStack(alignment: .leading, spacing: 4) {
+            Text(controller.targetLanguage.shortName.uppercased())
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(.tertiary)
 
@@ -121,7 +152,7 @@ struct TranslationPanel: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
+                    .padding(9)
                     .background(Color.accentColor.opacity(0.08),
                                 in: RoundedRectangle(cornerRadius: 7))
                     .overlay(RoundedRectangle(cornerRadius: 7)
@@ -142,10 +173,11 @@ struct TranslationPanel: View {
                 Text(L10n.t("The first translation of a language pair may download system models — this can take a few minutes."))
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
-        .padding(10)
+        .padding(9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
     }
@@ -169,14 +201,15 @@ struct TranslationPanel: View {
             Button(L10n.t("Translation Settings…")) { model.presentSettings() }
                 .controlSize(.small)
         }
-        .padding(10)
+        .padding(9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 7))
     }
 
-    // MARK: - Footer
+    // MARK: - Actions
 
-    private var footer: some View {
+    /// No Close item: `Esc` and a click outside dismiss the popover.
+    private var actionBar: some View {
         HStack(spacing: 10) {
             Button {
                 copyTranslation()
@@ -184,6 +217,7 @@ struct TranslationPanel: View {
                 Label(L10n.t("Copy"), systemImage: "doc.on.doc")
             }
             .disabled(controller.phase != .done)
+            .help(L10n.t("Copy the translation"))
 
             Button {
                 model.speech.speak(controller.translatedText, languageHint: controller.targetLanguageID)
@@ -197,17 +231,21 @@ struct TranslationPanel: View {
 
             Spacer(minLength: 0)
 
-            Button(L10n.t("Translate Again")) { controller.retry() }
-                .disabled(!controller.canRetry || controller.isWorking)
-
-            Button(L10n.t("Close")) { controller.isPanelPresented = false }
-                .keyboardShortcut(.cancelAction)
+            Button {
+                controller.retry()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .buttonStyle(.borderless)
+            .disabled(!controller.canRetry || controller.isWorking)
+            .help(L10n.t("Translate Again"))
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 11)
+        .controlSize(.small)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 
-    // MARK: - Actions
+    // MARK: - Helpers
 
     private func copyTranslation() {
         guard controller.phase == .done else { return }
@@ -241,6 +279,22 @@ struct TranslationPanel: View {
                                sourceID: sourceID,
                                targetID: targetID,
                                origin: controller.requestOrigin)
+        }
+    }
+}
+
+// MARK: - Window marker
+
+/// Marks the popover window with a stable identifier: the acceptance run captures the bubble by
+/// window, and other popovers on screen must not be mistaken for it.
+private struct TranslationBubbleWindowMarker: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { Marker() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    final class Marker: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            window?.identifier = NSUserInterfaceItemIdentifier(TranslationPopover.windowIdentifier)
         }
     }
 }

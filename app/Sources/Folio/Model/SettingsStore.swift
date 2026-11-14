@@ -26,6 +26,26 @@ struct TranslateLanguage: Identifiable, Hashable, Sendable {
         return fallbackName
     }
 
+    /// Compact name for narrow UI (the translation bubble): the language alone, plus a short
+    /// region marker only where it distinguishes variants — "Английский (US)", "Русский".
+    /// `displayName` stays the full system name for menus and settings.
+    var shortName: String {
+        if isAuto { return L10n.t("Detect automatically") }
+        let parts = identifier.split(separator: "-")
+        let languageCode = parts.first.map(String.init) ?? identifier
+        let locale = Locale.current
+        let language = locale.localizedString(forLanguageCode: languageCode)
+            ?? locale.localizedString(forIdentifier: identifier)
+            ?? fallbackName
+        guard parts.count > 1 else { return language }
+        let regionCode = String(parts[1]).uppercased()
+        // The list only carries regional variants where the difference matters
+        // (en-US/en-GB, pt-BR…) — otherwise the region would be noise.
+        let variants = Self.all.filter { $0.identifier.hasPrefix(languageCode + "-") }
+        guard variants.count > 1 else { return language }
+        return "\(language) (\(regionCode))"
+    }
+
     static let auto = TranslateLanguage(identifier: "", fallbackName: "Auto")
 
     /// A sensible list: languages supported by the system translation engine,

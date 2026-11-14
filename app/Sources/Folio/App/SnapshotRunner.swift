@@ -565,13 +565,12 @@ enum SnapshotRunner {
         var translationIsLive = false
         if options.liveTranslation {
             if let pageView = findPageView(in: window, page: 0) {
-                pageView.debugSelectFirstWords(16)
+                pageView.debugSelectFirstWords(6)
                 pump(0.3)
                 if let selection = model.selection, !selection.isEmpty {
-                    model.translation.request(text: selection.text,
-                                              sourceID: "en-US",
-                                              targetID: "ru-RU",
-                                              origin: "selection")
+                    // Through the model, not the controller: the same path the reader uses,
+                    // so the bubble gets its anchor (page + rects) and shows up.
+                    model.translate(selection.text, origin: "selection")
                     let finished = waitUntil(timeout: 40) {
                         model.translation.phase == .done || {
                             if case .failed = model.translation.phase { return true }
@@ -590,22 +589,33 @@ enum SnapshotRunner {
         }
         if !translationIsLive {
             // Simulated system translation result — the English source localized to the UI language.
+            // The bubble is anchored to the selection, so make sure there is one to point at.
+            if model.selection?.isEmpty ?? true, let pageView = findPageView(in: window, page: 0) {
+                pageView.debugSelectFirstWords(6)
+                pump(0.3)
+            }
             model.translation.debugInjectResult(
                 source: "Attention is all you need. The dominant sequence transduction models are based on complex recurrent or convolutional neural networks.",
                 translated: L10n.t("Attention is all you need. The dominant sequence transduction models are based on complex recurrent or convolutional neural networks."),
                 sourceID: "en-US",
-                targetID: "ru-RU"
+                targetID: "ru-RU",
+                page: model.selection?.page ?? 0,
+                rects: model.selection?.rects ?? []
             )
         }
         pump(1.2)
-        if let sheet = window.attachedSheet {
-            capture(window: sheet, name: "translation-panel.png", options: options)
-            folioLog("snapshot: translation panel captured (translation-panel.png, \(translationIsLive ? "real system translation" : "stub text"))")
+        if captureTranslationPopover(in: window, name: "translation-panel.png", options: options) {
+            folioLog("snapshot: translation bubble captured (translation-panel.png, \(translationIsLive ? "real system translation" : "stub text"))")
         } else {
-            folioLog("snapshot: WARNING — the translation panel did not appear as a sheet")
+            folioLog("snapshot: WARNING — the translation bubble did not appear as a popover")
         }
         model.translation.isPanelPresented = false
         pump(0.6)
+        if popoverWindow() != nil {
+            folioLog("snapshot: WARNING — the translation bubble is still on screen after dismissal")
+        } else {
+            folioLog("snapshot: translation bubble dismissed on request, no lingering window")
+        }
     }
 
     /// Toolbar diagnostics: which items are actually in the `NSToolbar` and where.
@@ -726,6 +736,119 @@ enum SnapshotRunner {
         }
         folioLog("snapshot: FAILED to save \(name)")
         return false
+    }
+
+    // MARK: - Popovers
+
+    /// The translation bubble is a system popover: it lives in its own window, so a snapshot of
+    /// the reader window alone would miss it. Render both windows and stack them.
+    private static func captureTranslationPopover(in mainWindow: NSWindow, name: String,
+                                                  options: Options) -> Bool {
+        guard let bubble = popoverWindow() else {
+            folioLog("snapshot: no popover window — the bubble did not open")
+            return false
+        }
+        guard let bubbleImage = image(of: bubble, includingChrome: false) else {
+            folioLog("snapshot: the popover window did not render")
+            return capture(window: bubble, name: name, options: options)
+        }
+        guard let mainImage = image(of: mainWindow, includingChrome: true) else {
+            return capture(window: bubble, name: name, options: options)
+        }
+
+        let mainFrame = mainWindow.frame
+        let bubbleFrame = bubble.frame
+        let union = mainFrame.union(bubbleFrame)
+        let scale = mainWindow.backingScaleFactor
+        let widthPx = Int((union.width * scale).rounded())
+        let heightPx = Int((union.height * scale).rounded())
+        guard widthPx > 10, heightPx > 10,
+              let rep = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                         pixelsWide: widthPx, pixelsHigh: heightPx,
+                                         bitsPerSample: 8, samplesPerPixel: 4,
+                                         hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0, bitsPerPixel: 0) else {
+            return false
+        }
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        // The bitmap context works in pixels while the windows are measured in points.
+        NSGraphicsContext.current?.cgContext.scaleBy(x: scale, y: scale)
+        NSColor.windowBackgroundColor.setFill()
+        NSRect(x: 0, y: 0, width: union.width, height: union.height).fill()
+        mainImage.draw(in: NSRect(x: mainFrame.minX - union.minX,
+                                  y: mainFrame.minY - union.minY,
+                                  width: mainFrame.width, height: mainFrame.height))
+        bubbleImage.draw(in: NSRect(x: bubbleFrame.minX - union.minX,
+                                    y: bubbleFrame.minY - union.minY,
+                                    width: bubbleFrame.width, height: bubbleFrame.height))
+        NSGraphicsContext.restoreGraphicsState()
+
+        let stats = analyze(rep)
+        guard !stats.isBlank else {
+            folioLog("snapshot: popover composite is blank (\(stats.summary))")
+            return false
+        }
+        save(rep, to: options.outDir.appendingPathComponent(name))
+        folioLog("snapshot: \(name) — popover composite \(stats.summary) (\(widthPx)×\(heightPx) px)")
+        return true
+    }
+
+    /// The translation bubble: its own `NSPopover` window, marked by `TranslationPopover`.
+    private static func popoverWindow() -> NSWindow? {
+        NSApp.windows.first { window in
+            window.isVisible && window.identifier?.rawValue == TranslationPopover.windowIdentifier
+        }
+    }
+
+    /// Window content straight from the window server — materials, rounded corners and alpha
+    /// included. Only the app's own windows are read, so no Screen Recording permission is needed.
+    private static func screenImage(of window: NSWindow) -> NSImage? {
+        guard window.windowNumber > 0 else { return nil }
+        guard let cgImage = CGWindowListCreateImage(.null,
+                                                    .optionIncludingWindow,
+                                                    CGWindowID(window.windowNumber),
+                                                    [.boundsIgnoreFraming, .bestResolution]) else {
+            return nil
+        }
+        return NSImage(cgImage: cgImage, size: window.frame.size)
+    }
+
+    /// Snapshot of a window as an `NSImage` in points (titlebar included when asked).
+    private static func image(of window: NSWindow, includingChrome: Bool) -> NSImage? {
+        // The window server renders materials, shadows and vibrancy; an offscreen `cacheDisplay`
+        // of a SwiftUI popover draws its text but not its translucent background.
+        if let screenshot = screenImage(of: window) { return screenshot }
+
+        guard let content = window.contentView else { return nil }
+        var candidates: [NSView] = []
+        if includingChrome, let chrome = content.superview { candidates.append(chrome) }
+        candidates.append(content)
+
+        for view in candidates {
+            view.layoutSubtreeIfNeeded()
+            view.displayIfNeeded()
+            guard view.bounds.width > 10, view.bounds.height > 10 else { continue }
+
+            if let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds), rep.pixelsWide > 0 {
+                view.cacheDisplay(in: view.bounds, to: rep)
+                if !analyze(rep).isBlank {
+                    // The rep is in pixels: pin its size to the view's points so that drawing it
+                    // into a point-based rectangle does not scale or clip the content.
+                    rep.size = view.bounds.size
+                    let image = NSImage(size: view.bounds.size)
+                    image.addRepresentation(rep)
+                    return image
+                }
+            }
+            if let cgImage = renderLayer(view, scale: window.backingScaleFactor),
+               !analyze(NSBitmapImageRep(cgImage: cgImage)).isBlank {
+                return NSImage(cgImage: cgImage, size: view.bounds.size)
+            }
+        }
+        return nil
     }
 
     private static func save(_ rep: NSBitmapImageRep, to url: URL) {
@@ -860,7 +983,7 @@ enum SnapshotRunner {
         }()
         lines.append("translation: pair=\(model.settings.translationPairTitle), framework=\(translationFramework)")
         lines.append("contextMenu: dictionary/thesaurus (showDefinition), translate selection, speak, copy, settings, layout")
-        lines.append("translationPanel: \(options.liveTranslation ? "real system translation (--snapshot-translate)" : "demo text — real translation requires system models")")
+        lines.append("translationBubble: \(options.liveTranslation ? "real system translation (--snapshot-translate)" : "demo text — real translation requires system models")")
         lines.append("headings: \(model.headingRows.count)")
         for row in model.headingRows.prefix(30) {
             lines.append("  H\(row.level) p\(row.page + 1): \(row.title)")
