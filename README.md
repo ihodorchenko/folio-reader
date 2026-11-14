@@ -137,7 +137,8 @@ certificate is not visible to `codesign`/`notarytool`).
     (`heuristic` / `tagged` / `outline`); clicking an item scrolls to the block;
   - **Pages** — page thumbnails;
   - **Search** — debounced full-document search, highlighted hits, next/previous navigation.
-- **Text overlay** — hovered word highlight, drag selection, `⌘C` copy.
+- **Text overlay** — hovered word highlight, drag selection and a progressive double click:
+  a sentence first, then the whole paragraph, then the page and back to the sentence; `⌘C` copy.
 - **Selection action bar** — selecting more than one word shows a floating
   **Dictionary / Translate / Copy** bar above the selection. It hides while dragging, while any
   menu (context or menu bar) is open and after copy/lookup/translation, and comes back when the

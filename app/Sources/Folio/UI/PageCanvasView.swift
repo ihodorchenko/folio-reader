@@ -60,6 +60,8 @@ final class PageCanvasView: NSView {
     private var contextPoint: CGPoint?
     private var mouseDownPoint: CGPoint?
     private var dragStartWord: Int?
+    /// The current click selected a sentence/paragraph/page: `mouseUp` must keep it.
+    private var isStructuralClick = false
     private var isDragging = false
 
     private static let fontSizeForMock: CGFloat = 1.0
@@ -453,6 +455,17 @@ final class PageCanvasView: NSView {
         mouseDownPoint = point
         lastHoverPoint = point
         let index = geometry?.wordIndex(at: point, tolerance: 6)
+        // A double click (and every following click at the same place) walks the structure:
+        // sentence → paragraph → page. The hover already marks the word, so the first
+        // double click starts from the sentence.
+        if event.clickCount >= 2, let index {
+            isStructuralClick = true
+            dragStartWord = nil
+            isDragging = false
+            selectNextUnit(at: index)
+            needsDisplay = true
+            return
+        }
         dragStartWord = index
         isDragging = false
         if let index, let geometry {
@@ -461,6 +474,52 @@ final class PageCanvasView: NSView {
             model?.clearSelection()
         }
         needsDisplay = true
+    }
+
+    /// Picks the next structure unit around `index` and selects it.
+    ///
+    /// The ladder is driven by the current selection; when the click between two double clicks has
+    /// already cleared it, the previous structural unit is remembered for a moment, so a second
+    /// (even not very quick) double click still continues the ladder instead of starting over.
+    private func selectNextUnit(at index: Int) {
+        guard let geometry, !geometry.isEmpty else { return }
+        let candidates = Self.unitLadder(sentence: geometry.sentenceRange(containing: index),
+                                         paragraph: geometry.paragraphRange(containing: index),
+                                         page: geometry.fullRange)
+        let now = ProcessInfo.processInfo.systemUptime
+        var base = model?.selection?.wordIndices
+        if base == nil, let last = lastStructuralUnit, last.page == pageIndex,
+           last.range.contains(index), now - last.time < Self.structuralLadderMemory {
+            base = Array(last.range)
+        }
+        let next: ClosedRange<Int>
+        if let base, let position = candidates.firstIndex(where: { Array($0) == base }) {
+            next = candidates[(position + 1) % candidates.count]
+        } else {
+            next = candidates[0]
+        }
+        let selection = geometry.selection(from: next.lowerBound, to: next.upperBound)
+        model?.setSelection(selection)
+        lastStructuralUnit = (pageIndex, next, now)
+        folioLog("selection: double click → \(next.lowerBound + 1)...\(next.upperBound + 1) (\(next.count) words, \(selection.unit.rawValue))")
+    }
+
+    /// The last unit the ladder selected — lets a repeated double click continue even after the
+    /// click between the two gestures cleared the selection.
+    private var lastStructuralUnit: (page: Int, range: ClosedRange<Int>, time: TimeInterval)?
+    /// How long a cleared structural selection still counts as "the fragment you were selecting".
+    private static let structuralLadderMemory: TimeInterval = 2.0
+
+    /// Sentence → paragraph → page, without duplicates: when a block is a single sentence, the
+    /// paragraph step is the same range and would select nothing new.
+    static func unitLadder(sentence: ClosedRange<Int>,
+                           paragraph: ClosedRange<Int>,
+                           page: ClosedRange<Int>) -> [ClosedRange<Int>] {
+        var result: [ClosedRange<Int>] = []
+        for range in [sentence, paragraph, page] where result.last != range {
+            result.append(range)
+        }
+        return result
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -481,6 +540,11 @@ final class PageCanvasView: NSView {
             lastPressureStage = 0
             model?.endPointerSelection()
             needsDisplay = true
+        }
+        if isStructuralClick {
+            // The click selected a structure unit: keep it.
+            isStructuralClick = false
+            return
         }
         guard !isDragging else { return }
         // Click without dragging — clear the selection (the cursor is in the text).
@@ -801,6 +865,26 @@ final class PageCanvasView: NSView {
     // MARK: - Self-tests for snapshot acceptance
 
     /// Programmatically selects the first N words of the page (checks drag selection and ⌘C).
+    /// Snapshot acceptance: the very same ladder a double click runs, without a mouse.
+    func debugDoubleClickWord(_ index: Int) {
+        selectNextUnit(at: index)
+    }
+
+    /// Snapshot acceptance: window point at the centre of a word — for synthesized mouse events.
+    func debugWindowPoint(forWord index: Int) -> CGPoint? {
+        guard let geometry, index >= 0, index < geometry.words.count else { return nil }
+        let bbox = geometry.words[index].word.bbox
+        return convert(CGPoint(x: bbox.midX * zoom, y: bbox.midY * zoom), to: nil)
+    }
+
+    /// Snapshot acceptance: forget the ladder memory, so a test starts from the sentence.
+    func debugResetStructuralLadder() { lastStructuralUnit = nil }
+
+    /// Snapshot acceptance: block index and text of every word on the page.
+    var debugWords: [(block: Int, text: String)] {
+        geometry?.words.map { ($0.blockID, $0.word.text) } ?? []
+    }
+
     /// Snapshot acceptance: selects the whole first block — a fragment that spans several visual
     /// lines, which is exactly the case the translator used to split into separate paragraphs.
     func debugSelectFirstBlock() {

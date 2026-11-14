@@ -102,6 +102,64 @@ struct PageTextGeometry {
                          unit: unit(of: refs, text: text))
     }
 
+    // MARK: - Structure units (double click)
+
+    /// Sentence that contains the word — the unit a double click selects first.
+    /// A sentence never crosses a block: the block is the paragraph.
+    func sentenceRange(containing index: Int) -> ClosedRange<Int> {
+        guard !words.isEmpty else { return 0...0 }
+        let clamped = max(0, min(index, words.count - 1))
+        let block = words[clamped].blockID
+        var start = clamped
+        while start > 0, words[start - 1].blockID == block, !isSentenceEnd(start - 1) {
+            start -= 1
+        }
+        var end = clamped
+        while end + 1 < words.count, words[end].blockID == block, !isSentenceEnd(end) {
+            end += 1
+        }
+        return start...end
+    }
+
+    /// Whole block (paragraph) that contains the word — the second double click.
+    func paragraphRange(containing index: Int) -> ClosedRange<Int> {
+        guard !words.isEmpty else { return 0...0 }
+        let clamped = max(0, min(index, words.count - 1))
+        let block = words[clamped].blockID
+        var start = clamped
+        while start > 0, words[start - 1].blockID == block { start -= 1 }
+        var end = clamped
+        while end + 1 < words.count, words[end + 1].blockID == block { end += 1 }
+        return start...end
+    }
+
+    /// The whole page — the last step of the ladder.
+    var fullRange: ClosedRange<Int> { 0...max(words.count - 1, 0) }
+
+    /// Does the word close a sentence? A terminal followed by a lowercase word is an abbreviation
+    /// ("e.g.", "Dr."), not a boundary; the end of a block always closes the sentence.
+    private func isSentenceEnd(_ index: Int) -> Bool {
+        let ref = words[index]
+        guard Self.hasSentenceTerminal(ref.word.text) else { return false }
+        guard index + 1 < words.count, words[index + 1].blockID == ref.blockID else { return true }
+        guard let first = Self.firstSignificantCharacter(in: words[index + 1].word.text) else { return true }
+        return first.isUppercase
+    }
+
+    private static func hasSentenceTerminal(_ text: String) -> Bool {
+        var characters = Array(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        while let last = characters.last, closingMarks.contains(last) { characters.removeLast() }
+        guard let last = characters.last else { return false }
+        return sentenceTerminals.contains(last)
+    }
+
+    private static func firstSignificantCharacter(in text: String) -> Character? {
+        text.first { !openingMarks.contains($0) && !$0.isWhitespace }
+    }
+
+    private static let closingMarks: Set<Character> = ["\"", "”", "»", ")", "]", "’", "'"]
+    private static let openingMarks: Set<Character> = ["\"", "“", "«", "(", "[", "‘", "'"]
+
     // MARK: - Fragment text from the structure
 
     /// Reading-order text of a run of words: words of one line are separated by a space, a visual

@@ -349,6 +349,85 @@ enum SnapshotRunner {
             folioLog("snapshot: ERROR — no selection for the structure check")
         }
 
+        // Double click walks the structure: sentence → paragraph → page → sentence. The probe sits
+        // in the middle of the longest block (the abstract), which holds several sentences.
+        let words = pageView.debugWords
+        let blockSizes = Dictionary(grouping: words.indices, by: { words[$0].block }).mapValues(\.count)
+        if let (block, blockCount) = blockSizes.max(by: { $0.value < $1.value }), blockCount > 30,
+           let first = words.firstIndex(where: { $0.block == block }) {
+            let probe = min(first + blockCount / 2, words.count - 1)
+            pageView.debugDoubleClickWord(probe)
+            pump(0.15)
+            let sentenceWords = model.selection?.wordIndices.count ?? 0
+            folioLog("snapshot: double click 1 → \(sentenceWords) words, unit=\(model.selection?.unit.rawValue ?? "-"), bar=\(model.isSelectionBarVisible) (expected: a sentence inside the \(blockCount)-word block)")
+            if sentenceWords == 0 || sentenceWords >= blockCount || model.selection?.unit != .sentence {
+                folioLog("snapshot: ERROR — the first double click did not select the sentence")
+            }
+            if !model.isSelectionBarVisible {
+                folioLog("snapshot: ERROR — the action bar is missing for a sentence selection")
+            }
+
+            pageView.debugDoubleClickWord(probe)
+            pump(0.15)
+            let paragraphWords = model.selection?.wordIndices.count ?? 0
+            folioLog("snapshot: double click 2 → \(paragraphWords) words, unit=\(model.selection?.unit.rawValue ?? "-") (expected: the whole block, \(blockCount))")
+            if paragraphWords != blockCount || model.selection?.unit != .paragraph {
+                folioLog("snapshot: ERROR — the second double click did not select the paragraph")
+            }
+
+            pageView.debugDoubleClickWord(probe)
+            pump(0.15)
+            let pageWords = model.selection?.wordIndices.count ?? 0
+            folioLog("snapshot: double click 3 → \(pageWords) words (expected: the whole page, \(words.count))")
+            if pageWords != words.count {
+                folioLog("snapshot: ERROR — the third double click did not select the page")
+            }
+
+            pageView.debugDoubleClickWord(probe)
+            pump(0.15)
+            let wrappedWords = model.selection?.wordIndices.count ?? 0
+            folioLog("snapshot: double click 4 → \(wrappedWords) words (expected: back to the sentence, \(sentenceWords))")
+            if wrappedWords != sentenceWords {
+                folioLog("snapshot: ERROR — the ladder did not wrap back to the sentence")
+            }
+
+            // A click between two double clicks clears the selection — the ladder must still
+            // continue from the unit that was selected a moment ago.
+            model.clearSelection()
+            pageView.debugDoubleClickWord(probe)
+            pump(0.15)
+            let continuedWords = model.selection?.wordIndices.count ?? 0
+            folioLog("snapshot: double click after a clearing click → \(continuedWords) words (expected: the paragraph, \(blockCount))")
+            if continuedWords != blockCount {
+                folioLog("snapshot: ERROR — the ladder restarted instead of continuing after a click")
+            }
+
+            // The real mouse path: a synthesized double click selects the sentence and keeps it
+            // after mouse up; the next click (count 3) steps to the paragraph.
+            pageView.debugResetStructuralLadder()
+            model.clearSelection()
+            if let point = pageView.debugWindowPoint(forWord: probe) {
+                synthesizeClick(at: point, clickCount: 2, in: window, pageView: pageView)
+                pump(0.15)
+                let doubled = model.selection?.wordIndices.count ?? 0
+                folioLog("snapshot: synthesized double click → \(doubled) words, unit=\(model.selection?.unit.rawValue ?? "-") (expected: a sentence that survives mouse up)")
+                if doubled == 0 || model.selection?.unit != .sentence {
+                    folioLog("snapshot: ERROR — a real double click did not select the sentence")
+                }
+                synthesizeClick(at: point, clickCount: 3, in: window, pageView: pageView)
+                pump(0.15)
+                let tripled = model.selection?.wordIndices.count ?? 0
+                folioLog("snapshot: synthesized click 3 → \(tripled) words (expected: the paragraph, \(blockCount))")
+                if tripled != blockCount {
+                    folioLog("snapshot: ERROR — the third click did not step to the paragraph")
+                }
+            } else {
+                folioLog("snapshot: WARNING — no window point for the double-click probe")
+            }
+        } else {
+            folioLog("snapshot: WARNING — no multi-sentence block to test the double click on")
+        }
+
         // Selection action bar: appears for more than one word and yields to any other action.
         pageView.debugSelectFirstWords(6)
         pump(0.2)
@@ -698,6 +777,25 @@ enum SnapshotRunner {
         }
         logPageCountConsistency(model: model, label: nextPdf.lastPathComponent)
         capture(window: window, name: "switch.png", options: options)
+    }
+
+    /// A synthesized click on the page view — the mouse path without a real mouse.
+    private static func synthesizeClick(at point: CGPoint, clickCount: Int, in window: NSWindow,
+                                        pageView: PageCanvasView) {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: point,
+                                            modifierFlags: [], timestamp: now,
+                                            windowNumber: window.windowNumber, context: nil,
+                                            eventNumber: 0, clickCount: clickCount, pressure: 1),
+              let up = NSEvent.mouseEvent(with: .leftMouseUp, location: point,
+                                          modifierFlags: [], timestamp: now + 0.05,
+                                          windowNumber: window.windowNumber, context: nil,
+                                          eventNumber: 0, clickCount: clickCount, pressure: 0) else {
+            folioLog("snapshot: WARNING — could not synthesize a click")
+            return
+        }
+        pageView.mouseDown(with: down)
+        pageView.mouseUp(with: up)
     }
 
     // MARK: - Window
