@@ -7,14 +7,18 @@ tag-triggered workflow).
 ## 1. Bump and check the version
 
 ```bash
-./scripts/set-version.sh 1.2.1     # MARKETING_VERSION / CURRENT_PROJECT_VERSION + Info.plist
-./scripts/check-version.sh         # fails when the project and Info.plist diverge
-git diff                           # only the two version values should change
-git add -A && git commit -m "Release 1.2.1" && git push
+./scripts/set-version.sh 1.2.2     # MARKETING_VERSION / CURRENT_PROJECT_VERSION in the project
+./scripts/check-version.sh         # the plist must still refer to the project, not carry a copy
+git diff                           # only Folio.xcodeproj/project.xcproj should change
+git add -A && git commit -m "Release 1.2.2" && git push
 ```
 
-The Xcode project is the source of truth: `MARKETING_VERSION` → `CFBundleShortVersionString`,
-`CURRENT_PROJECT_VERSION` → `CFBundleVersion`. CI runs `check-version.sh` on every push.
+The Xcode project is the **only** source of a version: `MARKETING_VERSION` → `CFBundleShortVersionString`,
+`CURRENT_PROJECT_VERSION` → `CFBundleVersion`. `app/Bundle/Info.plist` is a template with
+`$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)` placeholders, so Xcode — a plain build and an
+archive alike — and `scripts/build-app.sh` stamp the same pair without a second file to edit.
+`FOLIO_VERSION` / `FOLIO_BUILD` override the CLI build; CI uses that to put the workflow run number
+into ad-hoc builds. CI runs `check-version.sh` on every push.
 
 ## 2. Build, sign and notarize in Xcode
 

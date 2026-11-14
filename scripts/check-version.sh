@@ -1,9 +1,10 @@
 #!/bin/bash
-# Fails when the version in app/Bundle/Info.plist and Folio.xcodeproj diverge,
-# and (optionally) when it does not match the expected release tag version.
+# The app version has exactly one source: the Xcode project
+# (MARKETING_VERSION → CFBundleShortVersionString, CURRENT_PROJECT_VERSION → CFBundleVersion).
+# app/Bundle/Info.plist must only *refer* to those settings, so a second copy cannot drift.
 #
-#   ./scripts/check-version.sh          # CI: project and plist must agree
-#   ./scripts/check-version.sh 1.2.1    # release: also match the tag version
+#   ./scripts/check-version.sh          # CI: the project defines the version, the plist refers to it
+#   ./scripts/check-version.sh 1.2.2    # release: the project version must also match the expected one
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -22,22 +23,29 @@ print(match.group(1))
 PY
 }
 
-PLIST_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST")
-PLIST_BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST")
-PROJECT_VERSION=$(project_value MARKETING_VERSION)
-PROJECT_BUILD=$(project_value CURRENT_PROJECT_VERSION)
+VERSION="$(project_value MARKETING_VERSION)"
+BUILD="$(project_value CURRENT_PROJECT_VERSION)"
 
-if [ "$PLIST_VERSION" != "$PROJECT_VERSION" ] || [ "$PLIST_BUILD" != "$PROJECT_BUILD" ]; then
-    echo "error: version mismatch — Info.plist $PLIST_VERSION ($PLIST_BUILD) vs" >&2
-    echo "       Folio.xcodeproj $PROJECT_VERSION ($PROJECT_BUILD)" >&2
-    echo "       run ./scripts/set-version.sh <version> to synchronize them" >&2
+if [ -z "$VERSION" ] || [ -z "$BUILD" ]; then
+    echo "error: the project defines an empty version ($VERSION) or build number ($BUILD)" >&2
     exit 1
 fi
 
-if [ -n "$EXPECTED" ] && [ "$PLIST_VERSION" != "$EXPECTED" ]; then
-    echo "error: release tag version $EXPECTED does not match the app version $PLIST_VERSION" >&2
+PLIST_VERSION="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST")"
+PLIST_BUILD="$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST")"
+
+if [ "$PLIST_VERSION" != '$(MARKETING_VERSION)' ] || [ "$PLIST_BUILD" != '$(CURRENT_PROJECT_VERSION)' ]; then
+    echo "error: Info.plist must reference the project settings, not a hard-coded version" >&2
+    echo "       expected CFBundleShortVersionString = \$(MARKETING_VERSION)," \
+         "CFBundleVersion = \$(CURRENT_PROJECT_VERSION)" >&2
+    echo "       found    CFBundleShortVersionString = $PLIST_VERSION, CFBundleVersion = $PLIST_BUILD" >&2
+    exit 1
+fi
+
+if [ -n "$EXPECTED" ] && [ "$VERSION" != "$EXPECTED" ]; then
+    echo "error: expected version $EXPECTED does not match the project's $VERSION" >&2
     echo "       run ./scripts/set-version.sh $EXPECTED before tagging" >&2
     exit 1
 fi
 
-echo "version consistency OK: $PLIST_VERSION ($PLIST_BUILD)"
+echo "version consistency OK: $VERSION ($BUILD) — single source: Folio.xcodeproj + Info.plist placeholders"

@@ -60,9 +60,10 @@ There are two build paths; both produce the same bundle:
 
 - **Xcode project** — the default way to build, archive and distribute. Xcode signs with the team's
   Developer ID (including Xcode-managed certificates) and notarizes from Organizer.
-- **`scripts/build-app.sh`** — the command-line/CI path. It builds with SwiftPM + cargo and signs
-  ad-hoc by default; pass a Developer ID identity and notary credentials to sign, notarize and staple
-  from the terminal (needed for automated releases).
+- **`scripts/build-app.sh`** — the command-line/CI path. It builds with SwiftPM + cargo, stamps the
+  version and build number from the Xcode project and signs ad-hoc by default; pass a Developer ID
+  identity and notary credentials to sign, notarize and staple from the terminal (needed for
+  automated releases).
 
 ### Signing and notarizing with Xcode (default)
 
@@ -383,16 +384,20 @@ open dist/Folio.app
 open dist/Folio.app --args samples/attention.pdf
 ```
 
-Version: the Xcode project stores `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`; `Info.plist` is a
-template whose version keys Xcode overrides. Keep both in sync with:
+Version: the Xcode project is the only place a version lives — `MARKETING_VERSION` →
+`CFBundleShortVersionString`, `CURRENT_PROJECT_VERSION` → `CFBundleVersion`.
+`app/Bundle/Info.plist` is a template holding `$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)`
+placeholders, so an Xcode build (archive included) and `scripts/build-app.sh` stamp the same pair:
 
 ```bash
-./scripts/set-version.sh 1.2.1        # project + Info.plist, keeps the build number
-./scripts/check-version.sh            # CI also fails when they diverge
+./scripts/set-version.sh 1.2.2        # project only, keeps the build number
+./scripts/set-version.sh 1.2.2 2      # …and bumps the build number
+./scripts/check-version.sh            # CI fails if the plist stops referring to the project
 ```
 
-The release tag is authoritative in CI: `v1.2.1` builds version `1.2.1` (and checks that the
-checked-in version matches). The Xcode project excludes `x86_64`
+`FOLIO_VERSION` / `FOLIO_BUILD` override what `build-app.sh` stamps — CI passes the workflow run
+number as the build number; there is no tag-driven release, so a tag never changes the version.
+The Xcode project excludes `x86_64`
 (`EXCLUDED_ARCHS[sdk=macosx*] = x86_64`) because PDFium and the Rust core are arm64-only.
 
 Bundle layout:

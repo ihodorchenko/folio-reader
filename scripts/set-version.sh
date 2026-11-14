@@ -1,14 +1,13 @@
 #!/bin/bash
-# Sets the app version in the Xcode project (MARKETING_VERSION / CURRENT_PROJECT_VERSION)
-# and in the Info.plist template, so every build path reports the same version.
+# Sets the app version in the Xcode project — the single source of truth
+# (MARKETING_VERSION / CURRENT_PROJECT_VERSION).
 #
-#   ./scripts/set-version.sh 1.2.1        # keep the current build number
-#   ./scripts/set-version.sh 1.2.1 42     # also set CFBundleVersion / CURRENT_PROJECT_VERSION
+#   ./scripts/set-version.sh 1.2.2        # keep the current build number
+#   ./scripts/set-version.sh 1.2.2 42     # also set the build number (CFBundleVersion)
 #
-# The checked-in value is the single source of truth: releases are manual, so bump it
-# before cutting one. There is no tag-triggered workflow and CI does not take the version
-# from a tag — it only verifies that the project and Info.plist agree
-# (scripts/check-version.sh) and builds whatever is committed.
+# app/Bundle/Info.plist is a template: it carries $(MARKETING_VERSION) / $(CURRENT_PROJECT_VERSION)
+# placeholders, so the Xcode build (archive included) and scripts/build-app.sh stamp the same pair
+# without editing a second file. Nothing else in the repository stores a version.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -19,7 +18,7 @@ VERSION="${1:-}"
 BUILD="${2:-}"
 
 if [ -z "$VERSION" ]; then
-    echo "usage: $(basename "$0") X.Y.Z [build-number]" >&2
+    echo "usage: $(basename "$0") X.Y[.Z] [build-number]" >&2
     exit 2
 fi
 if ! [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
@@ -59,27 +58,8 @@ text = replace_once(text, "CURRENT_PROJECT_VERSION", build)
 open(path, "w").write(text)
 PY
 
-# Edit the XML textually to keep the template's key order and formatting intact.
-python3 - "$PLIST" "$VERSION" "$BUILD" <<'PY'
-import re, sys
-
-path, version, build = sys.argv[1:4]
-text = open(path).read()
-
-def set_string(text, key, value):
-    pattern = r'(<key>%s</key>\s*<string>)([^<]*)(</string>)' % re.escape(key)
-    text, count = re.subn(pattern, lambda m: m.group(1) + value + m.group(3), text)
-    if count != 1:
-        raise SystemExit(f"error: expected exactly one {key} in {path}, found {count}")
-    return text
-
-text = set_string(text, "CFBundleShortVersionString", version)
-text = set_string(text, "CFBundleVersion", build)
-open(path, "w").write(text)
-PY
-
-# Validate the JSON project and the plist.
+# Validate the JSON project (it is the only file we touch) and the plist template.
 xcrun xcprojformatter "$PROJECT" >/dev/null
 plutil -lint "$PLIST" >/dev/null
 
-echo "version: $VERSION ($BUILD) — Folio.xcodeproj + app/Bundle/Info.plist"
+echo "version: $VERSION ($BUILD) — Folio.xcodeproj (the only place a version lives)"

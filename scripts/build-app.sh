@@ -10,10 +10,35 @@ TOOLCHAIN="$(cd "$ROOT/.." && pwd)/.toolchain"
 DIST="$ROOT/dist"
 APP="$DIST/Folio.app"
 ZIP="$DIST/Folio.app.zip"
-# Version defaults to the Info.plist template; CI overrides it from the git tag.
-VERSION="${FOLIO_VERSION:-$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$ROOT/app/Bundle/Info.plist" 2>/dev/null || echo 1.0)}"
-BUILD_NUMBER="${FOLIO_BUILD:-1}"
+# Version and build number come from the Xcode project — the single source of truth
+# (MARKETING_VERSION / CURRENT_PROJECT_VERSION); app/Bundle/Info.plist only carries the
+# $(…) placeholders, so a second copy of the version does not exist. FOLIO_VERSION / FOLIO_BUILD
+# still win, so CI can stamp its own build number (github.run_number).
+PROJECT="$ROOT/Folio.xcodeproj/project.xcproj"
+
+# Build setting from the project file. It is JSON with trailing commas, which a strict JSON
+# parser rejects, so the value is taken with a targeted regex (as in scripts/set-version.sh).
+project_setting() {
+    python3 - "$PROJECT" "$1" 2>/dev/null <<'PY' || true
+import re, sys
+path, key = sys.argv[1], sys.argv[2]
+try:
+    text = open(path, encoding="utf-8").read()
+except OSError:
+    raise SystemExit(0)
+match = re.search(r'"%s"\s*:\s*"([^"]*)"' % re.escape(key), text)
+if match:
+    print(match.group(1))
+PY
+}
+
+VERSION="${FOLIO_VERSION:-$(project_setting MARKETING_VERSION)}"
+VERSION="${VERSION:-1.0}"
+BUILD_NUMBER="${FOLIO_BUILD:-$(project_setting CURRENT_PROJECT_VERSION)}"
+BUILD_NUMBER="${BUILD_NUMBER:-1}"
 BUNDLE_ID="${FOLIO_BUNDLE_ID:-dev.folio.reader}"
+
+echo "Folio $VERSION ($BUILD_NUMBER)"
 
 # Signing and notarization (all optional; "-" keeps the current ad-hoc signature).
 #   FOLIO_SIGN_IDENTITY  e.g. "Developer ID Application: Your Name (TEAMID)"

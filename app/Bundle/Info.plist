@@ -23,10 +23,13 @@
     </array>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <!-- Version and build number live in the Xcode project (MARKETING_VERSION /
+         CURRENT_PROJECT_VERSION): the placeholders are expanded when the bundle is built,
+         both by Xcode and by scripts/build-app.sh. -->
     <key>CFBundleShortVersionString</key>
-    <string>1.2.1</string>
+    <string>$(MARKETING_VERSION)</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSMultipleInstancesProhibited</key>
