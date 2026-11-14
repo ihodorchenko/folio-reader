@@ -328,6 +328,27 @@ enum SnapshotRunner {
         let pasted = NSPasteboard.general.string(forType: .string) ?? "<empty>"
         folioLog("snapshot: pasteboard after copy: «\(String(pasted.prefix(140)))»")
 
+        // Structure of the fragment: the text is rebuilt from the layout, so the visual line
+        // breaks inside a paragraph never reach the translation (the system translator segments
+        // on them, and a sentence split over two lines came out as two paragraphs).
+        pageView.debugSelectFirstBlock()
+        pump(0.2)
+        if let selection = model.selection {
+            let withoutParagraphs = selection.text.replacingOccurrences(of: "\n\n", with: "")
+            folioLog("snapshot: whole-block selection: unit=\(selection.unit.rawValue) (expected sentence), text: «\(selection.text)»")
+            if selection.unit != .sentence {
+                folioLog("snapshot: ERROR — the whole block should be detected as a sentence")
+            }
+            if withoutParagraphs.contains("\n") {
+                folioLog("snapshot: ERROR — the selection keeps a visual line break inside a paragraph")
+            }
+            if selection.text.contains("  ") {
+                folioLog("snapshot: ERROR — the selection text has doubled spaces")
+            }
+        } else {
+            folioLog("snapshot: ERROR — no selection for the structure check")
+        }
+
         // Selection action bar: appears for more than one word and yields to any other action.
         pageView.debugSelectFirstWords(6)
         pump(0.2)
@@ -565,7 +586,7 @@ enum SnapshotRunner {
         var translationIsLive = false
         if options.liveTranslation {
             if let pageView = findPageView(in: window, page: 0) {
-                pageView.debugSelectFirstWords(6)
+                pageView.debugSelectFirstBlock()
                 pump(0.3)
                 if let selection = model.selection, !selection.isEmpty {
                     // Through the model, not the controller: the same path the reader uses,
@@ -591,7 +612,7 @@ enum SnapshotRunner {
             // Simulated system translation result — the English source localized to the UI language.
             // The bubble is anchored to the selection, so make sure there is one to point at.
             if model.selection?.isEmpty ?? true, let pageView = findPageView(in: window, page: 0) {
-                pageView.debugSelectFirstWords(6)
+                pageView.debugSelectFirstBlock()
                 pump(0.3)
             }
             model.translation.debugInjectResult(

@@ -83,8 +83,10 @@
 "Page number — type a number and press Return" = "Номер страницы — введите число и нажмите Return";
 "Page" = "Страница";
 "Pages" = "Страницы";
+"Passage" = "Фрагмент";
 "Paragraph" = "Абзац";
 "Play Sample" = "Прослушать пример";
+"Phrase" = "Фраза";
 "Previous Match" = "Предыдущее попадание";
 "Previous Page" = "Предыдущая страница";
 "Quote" = "Цитата";
@@ -101,6 +103,7 @@
 "Search the document (⌘F)" = "Поиск по документу (⌘F)";
 "Search" = "Поиск";
 "Section" = "Раздел";
+"Sentence" = "Предложение";
 "Select Word" = "Выделить слово";
 "Selection actions" = "Действия с выделением";
 "Settings…" = "Настройки…";
@@ -146,6 +149,7 @@
 "Ukrainian" = "Украинский";
 "View" = "Вид";
 "Voice" = "Голос";
+"Word" = "Слово";
 "Word Boxes" = "Рамки слов";
 "Word boxes" = "Рамки слов";
 "Zoom In" = "Увеличить";

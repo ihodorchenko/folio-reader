@@ -122,7 +122,7 @@ struct TranslationPopover: View {
 
     private var sourceSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(controller.sourceLanguage.shortName.uppercased())
+            Text("\(controller.sourceLanguage.shortName.uppercased()) · \(controller.unit.localizedTitle.uppercased())")
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(.tertiary)
             Text(controller.sourceText)

@@ -836,14 +836,16 @@ final class ReaderModel {
     func translate(_ text: String,
                    origin: String = "selection",
                    page anchorPage: Int? = nil,
-                   rects anchorRects: [PcRect] = []) {
+                   rects anchorRects: [PcRect] = [],
+                   unit: SelectionUnit? = nil) {
         dismissSelectionBar()
         var selectionAnchor: Selection?
         if let selection, !selection.isEmpty { selectionAnchor = selection }
         let page = anchorPage ?? selectionAnchor?.page ?? currentPage
         let rects = anchorRects.isEmpty ? (selectionAnchor?.rects ?? []) : anchorRects
+        let fragment = unit ?? selectionAnchor?.unit ?? .phrase
         guard #available(macOS 15.0, *) else {
-            translation.unavailableOnThisSystem(page: page, rects: rects)
+            translation.unavailableOnThisSystem(page: page, rects: rects, unit: fragment)
             return
         }
         translation.request(text: text,
@@ -851,7 +853,8 @@ final class ReaderModel {
                             targetID: settings.translateTargetID,
                             origin: origin,
                             page: page,
-                            rects: rects)
+                            rects: rects,
+                            unit: fragment)
     }
 
     /// "Translate Selection" from the menu/context menu.
@@ -861,7 +864,8 @@ final class ReaderModel {
             NSSound.beep()
             return
         }
-        translate(selection.text, origin: "selection")
+        translate(selection.text, origin: "selection",
+                  page: selection.page, rects: selection.rects, unit: selection.unit)
     }
 
     /// Open the settings window (⌘,).

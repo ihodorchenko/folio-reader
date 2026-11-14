@@ -741,7 +741,8 @@ final class PageCanvasView: NSView {
         model?.translate(text,
                          origin: onSelection ? "selection" : "word",
                          page: pageIndex,
-                         rects: onSelection ? [] : contextWordRects())
+                         rects: onSelection ? [] : contextWordRects(),
+                         unit: onSelection ? nil : .word)
     }
 
     /// Page-coordinate rects of the word the context menu was opened on.
@@ -800,6 +801,22 @@ final class PageCanvasView: NSView {
     // MARK: - Self-tests for snapshot acceptance
 
     /// Programmatically selects the first N words of the page (checks drag selection and ⌘C).
+    /// Snapshot acceptance: selects the whole first block — a fragment that spans several visual
+    /// lines, which is exactly the case the translator used to split into separate paragraphs.
+    func debugSelectFirstBlock() {
+        guard let geometry, !geometry.isEmpty else {
+            folioLog("selftest: no geometry to select from")
+            return
+        }
+        let blockID = geometry.words[0].blockID
+        let indices = geometry.words.indices.filter { geometry.words[$0].blockID == blockID }
+        guard let first = indices.first, let last = indices.last else { return }
+        let selection = geometry.selection(from: first, to: last)
+        model?.setSelection(selection)
+        needsDisplay = true
+        folioLog("selftest: selected the whole block (\(selection.unit.rawValue), \(selection.rects.count) words): «\(selection.text)»")
+    }
+
     func debugSelectFirstWords(_ count: Int) {
         guard let geometry, !geometry.isEmpty else {
             folioLog("selftest: no geometry to select from")
@@ -809,7 +826,7 @@ final class PageCanvasView: NSView {
         let selection = geometry.selection(from: 0, to: last)
         model?.setSelection(selection)
         needsDisplay = true
-        folioLog("selftest: selected \(selection.rects.count) words: «\(String(selection.text.prefix(140)))»")
+        folioLog("selftest: selected \(selection.rects.count) words (\(selection.unit.rawValue)): «\(String(selection.text.prefix(140)))»")
     }
 
     /// Size of the rendered raster — for checking that on document change

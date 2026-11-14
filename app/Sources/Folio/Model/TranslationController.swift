@@ -34,6 +34,8 @@ final class TranslationController {
     private(set) var anchorPage: Int?
     /// Page-coordinate rects of the translated fragment: the bubble is anchored to their union.
     private(set) var anchorRects: [PcRect] = []
+    /// Structure of the fragment (word / phrase / sentence / paragraph / passage).
+    private(set) var unit: SelectionUnit = .phrase
     /// What the request was made for: "word" / "selection" — logs and the retry path keep it.
     private(set) var requestOrigin = "selection"
     /// Extra hint under the error (what to do).
@@ -55,7 +57,8 @@ final class TranslationController {
                  targetID: String,
                  origin: String = "selection",
                  page: Int? = nil,
-                 rects: [PcRect] = []) {
+                 rects: [PcRect] = [],
+                 unit: SelectionUnit? = nil) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             folioLog("translate: empty text — nothing to translate")
@@ -74,6 +77,7 @@ final class TranslationController {
             anchorPage = page
             anchorRects = rects
         }
+        if let unit { self.unit = unit }
         isPanelPresented = true
         folioLog("translate: request #\(requestToken) \"\(String(trimmed.prefix(60)))\" \(pairTitle), \(trimmed.count) characters")
     }
@@ -110,7 +114,7 @@ final class TranslationController {
     }
 
     /// System without the Translation framework (macOS < 15): show an explanation instead of a translation.
-    func unavailableOnThisSystem(page: Int? = nil, rects: [PcRect] = []) {
+    func unavailableOnThisSystem(page: Int? = nil, rects: [PcRect] = [], unit: SelectionUnit? = nil) {
         sourceText = ""
         translatedText = ""
         sourceLanguageID = SettingsStore.shared.translateSourceID
@@ -122,6 +126,7 @@ final class TranslationController {
             anchorPage = page
             anchorRects = rects
         }
+        if let unit { self.unit = unit }
         isPanelPresented = true
         folioLog("translate: system without the Translation framework — showing an explanation")
     }
@@ -156,7 +161,8 @@ final class TranslationController {
                            sourceID: String,
                            targetID: String,
                            page: Int? = nil,
-                           rects: [PcRect] = []) {
+                           rects: [PcRect] = [],
+                           unit: SelectionUnit? = nil) {
         sourceText = source
         translatedText = translated
         sourceLanguageID = sourceID
@@ -168,6 +174,7 @@ final class TranslationController {
             anchorPage = page
             anchorRects = rects
         }
+        if let unit { self.unit = unit }
         isPanelPresented = true
         folioLog("translate: snapshot — injected result \(TranslateLanguage.named(sourceID).displayName) → \(TranslateLanguage.named(targetID).displayName)")
     }

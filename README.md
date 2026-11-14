@@ -148,8 +148,10 @@ certificate is not visible to `codesign`/`notarytool`).
   synthesizer. **Off by default**; toggle, speed and voice live in Settings (`⌘,`).
 - **Translate** — the selected text through the system Translation framework, shown in a system
   popover anchored to the fragment (like the Look Up / Translation bubble): `Esc` or a click
-  outside dismisses it, so translating never blocks the reader. The default pair is
-  **English (US) → Russian**, and a pair the user picks is remembered between launches.
+  outside dismisses it, so translating never blocks the reader. The fragment is rebuilt from the
+  document structure — a sentence spanning several lines arrives as one sentence, not as PDF line
+  breaks. The default pair is **English (US) → Russian**, and a pair the user picks is remembered
+  between launches.
 - **Layout debug mode** — colored boxes per element kind (`heading`, `body`, `list`,
   `caption`, `table`, `code`, `header`, `footer`, `formula`, `quote`, `reference`) with
   `kind/level/confidence` labels, and a per-word box mode that proves the overlay is aligned
@@ -306,6 +308,13 @@ Look Up / Translation popover: it shows the source text, the translation and the
 pair, and goes away on `Esc`, on a click anywhere outside, or as soon as another gesture takes over.
 There is no Close button and nothing is modal, so a translation never blocks reading; the bubble is
 anchored to the words it translates, which keeps it tied to the text instead of the window.
+
+The text of a selection is rebuilt from the layout, not copied raw: words of one line are separated
+by a space, a visual line break inside a paragraph becomes a space with soft hyphenation glued back
+(`trans-` + `former` → `transformer`), a continued block is joined and only a real paragraph starts
+a new one. The bubble names what it translates — **word, phrase, sentence, paragraph or passage** —
+so the system translator receives one coherent fragment instead of PDF line breaks, and ⌘C copies
+the same clean text.
 
 Changing the pair re-translates the same fragment immediately and is stored in `UserDefaults`
 (`Folio.translate.source`, `Folio.translate.target`), so the choice survives relaunches; the factory
